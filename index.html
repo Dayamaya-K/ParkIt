@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Park It! — Precision Parking</title>
+<style>
+:root {
+    --bg-0: #0b0f17;
+    --bg-1: #131a25;
+    --bg-glass: rgba(15, 22, 33, 0.65);
+    --border: rgba(255, 255, 255, 0.08);
+    --text: #f4f7fb;
+    --text-muted: #8a96a8;
+    --accent: #22d3ee;
+    --accent-2: #6366f1;
+    --success: #34d399;
+    --warning: #fbbf24;
+    --danger: #ef4444;
+    --shadow-1: 0 4px 20px rgba(0,0,0,0.35);
+    --shadow-2: 0 8px 40px rgba(0,0,0,0.5);
+    --radius: 12px;
+    --radius-sm: 8px;
+    --font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    --font-mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 100%; height: 100%; background: var(--bg-0); color: var(--text); font-family: var(--font-ui); overflow: hidden; user-select: none; -webkit-user-select: none; }
+canvas { display: block; position: absolute; top: 0; left: 0; }
+.hidden { display: none !important; }
+
+/* ===== Screens ===== */
+.screen { position: fixed; inset: 0; z-index: 50; }
+.screen.modal {
+    background: rgba(7, 11, 18, 0.72);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    display: flex; align-items: center; justify-content: center;
+    padding: 24px;
+}
+
+/* ===== Title screen ===== */
+#title-screen {
+    background:
+        radial-gradient(ellipse at top right, rgba(99,102,241,0.28), transparent 55%),
+        radial-gradient(ellipse at bottom left, rgba(34,211,238,0.22), transparent 55%),
+        linear-gradient(135deg, #07101e, #131a26 60%, #0a0f1a);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 32px;
+}
+.logo {
+    font-size: clamp(56px, 9vw, 104px);
+    font-weight: 900; letter-spacing: -3px; line-height: 1;
+    margin-bottom: 14px;
+    background: linear-gradient(135deg, #22d3ee 0%, #6366f1 60%, #a855f7 100%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    text-shadow: 0 0 60px rgba(34,211,238,0.15);
+}
+.tagline { color: var(--text-muted); font-size: 17px; margin-bottom: 36px; text-align: center; max-width: 480px; line-height: 1.55; }
+.tagline strong { color: var(--accent); font-weight: 600; }
+
+.controls-card {
+    background: var(--bg-glass);
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 22px 26px; box-shadow: var(--shadow-1);
+    margin-bottom: 32px; min-width: 360px;
+}
+.controls-card h3 {
+    font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.6px;
+    color: var(--text-muted); margin-bottom: 16px;
+}
+.controls-grid { display: grid; grid-template-columns: auto 1fr; gap: 10px 18px; align-items: center; }
+.key {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 5px 10px; border-radius: 6px;
+    font-family: var(--font-mono); font-size: 12px; font-weight: 600;
+    text-align: center; min-width: 78px;
+    box-shadow: 0 1px 0 rgba(255,255,255,0.04) inset, 0 2px 4px rgba(0,0,0,0.2);
+}
+.action { color: var(--text-muted); font-size: 14px; }
+
+/* ===== Buttons ===== */
+.primary-btn, .secondary-btn {
+    border: none; border-radius: 10px;
+    padding: 14px 32px;
+    font-family: inherit; font-size: 15px; font-weight: 600;
+    cursor: pointer; transition: transform 0.15s, box-shadow 0.15s, background 0.2s;
+    letter-spacing: 0.3px;
+}
+.primary-btn {
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    color: #07101e; box-shadow: 0 6px 24px rgba(34, 211, 238, 0.3);
+}
+.primary-btn:hover { transform: translateY(-1px); box-shadow: 0 10px 30px rgba(34,211,238,0.45); }
+.primary-btn:active { transform: translateY(0); }
+.secondary-btn {
+    background: rgba(255,255,255,0.06); color: var(--text);
+    border: 1px solid var(--border);
+}
+.secondary-btn:hover { background: rgba(255,255,255,0.1); }
+
+/* ===== HUD ===== */
+#hud { position: fixed; inset: 0; z-index: 30; pointer-events: none; }
+
+.hud-top {
+    position: absolute; top: 22px; left: 22px; right: 22px;
+    display: flex; justify-content: space-between; align-items: flex-start; gap: 14px;
+}
+
+.hud-card {
+    background: var(--bg-glass);
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 9px 16px; box-shadow: var(--shadow-1);
+    pointer-events: auto;
+    min-width: 90px;
+}
+.hud-label { color: var(--text-muted); font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 1.3px; }
+.hud-value { color: var(--text); font-size: 22px; font-weight: 700; line-height: 1.1; margin-top: 2px; }
+.hud-value.mono { font-family: var(--font-mono); font-feature-settings: 'tnum' 1; }
+.hud-value .unit { font-size: 11px; color: var(--text-muted); margin-left: 4px; font-weight: 500; }
+.hud-value .sep { color: var(--text-muted); font-size: 13px; font-weight: 500; }
+
+.hud-objective {
+    background: var(--bg-glass);
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 11px 22px;
+    color: var(--text); font-size: 14px; font-weight: 500;
+    box-shadow: var(--shadow-1); align-self: center; text-align: center; max-width: 60vw;
+    display: flex; align-items: center; gap: 10px;
+}
+.hud-objective .target-icon {
+    width: 12px; height: 12px; border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 12px var(--accent);
+    animation: pulse-dot 1.4s infinite;
+}
+@keyframes pulse-dot { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(0.7); } }
+
+/* ===== Bottom HUD ===== */
+.hud-bottom {
+    position: absolute; bottom: 24px; left: 22px; right: 22px;
+    display: flex; justify-content: space-between; align-items: flex-end; gap: 14px;
+}
+
+/* Proximity sensor */
+.proximity {
+    position: relative; width: 80px; height: 124px; pointer-events: auto;
+    flex-shrink: 0;
+}
+.prox-car {
+    position: absolute; inset: 22px 18px 22px 18px;
+    background: linear-gradient(180deg, #2a3344, #1a2030);
+    border-radius: 6px 6px 8px 8px;
+    box-shadow: inset 0 -2px 4px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.04);
+}
+.prox-car::before, .prox-car::after {
+    content: ''; position: absolute; left: 5px; right: 5px; height: 6px;
+    background: rgba(34,211,238,0.15); border-radius: 2px;
+}
+.prox-car::before { top: 10px; }
+.prox-car::after { bottom: 10px; }
+
+.prox-arc {
+    position: absolute;
+    background: rgba(60, 70, 90, 0.4);
+    transition: background 0.12s, opacity 0.12s;
+}
+.prox-arc.front { top: 0; left: 16px; right: 16px; height: 16px; border-radius: 28px 28px 4px 4px; }
+.prox-arc.back  { bottom: 0; left: 16px; right: 16px; height: 16px; border-radius: 4px 4px 28px 28px; }
+.prox-arc.left  { top: 22px; bottom: 22px; left: 0; width: 13px; border-radius: 18px 4px 4px 18px; }
+.prox-arc.right { top: 22px; bottom: 22px; right: 0; width: 13px; border-radius: 4px 18px 18px 4px; }
+
+.prox-arc.warn { background: var(--warning); box-shadow: 0 0 12px rgba(251,191,36,0.5); }
+.prox-arc.danger { background: var(--danger); box-shadow: 0 0 16px rgba(239,68,68,0.7); animation: pulse-danger 0.35s infinite alternate; }
+@keyframes pulse-danger { from { opacity: 0.6; } to { opacity: 1; } }
+
+.bottom-cluster { display: flex; gap: 22px; align-items: flex-end; pointer-events: auto; }
+
+/* Steering wheel */
+.steer-wheel { position: relative; width: 64px; height: 64px; }
+.steer-wheel svg { width: 100%; height: 100%; }
+
+/* Speed card */
+.speed-card { text-align: right; min-width: 140px; }
+.speed-card .gear {
+    margin-top: 4px; font-family: var(--font-mono); font-size: 13px; font-weight: 700;
+    color: var(--accent); letter-spacing: 1px;
+}
+.speed-card .gear.reverse { color: var(--warning); }
+.speed-card .gear.park { color: var(--success); }
+
+.distance-card { min-width: 130px; }
+.distance-card .hud-value { transition: color 0.2s; }
+.distance-card.close .hud-value { color: var(--success); }
+
+/* ===== Off-screen target arrow ===== */
+#target-arrow {
+    position: absolute; top: 50%; left: 50%;
+    width: 56px; height: 56px;
+    transform: translate(-50%, -50%);
+    pointer-events: none; opacity: 0;
+    transition: opacity 0.2s;
+}
+#target-arrow.show { opacity: 0.95; }
+#target-arrow svg { width: 100%; height: 100%; filter: drop-shadow(0 0 14px rgba(34,211,238,0.85)); }
+
+/* ===== Hint banner (toast under objective) ===== */
+#hint-banner {
+    position: absolute; top: 86px; left: 50%;
+    background: var(--bg-glass);
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--border); border-radius: 10px;
+    padding: 10px 18px;
+    color: var(--text); font-size: 13px; font-weight: 500;
+    box-shadow: var(--shadow-1);
+    opacity: 0; transform: translate(-50%, -8px);
+    transition: opacity 0.3s, transform 0.3s;
+    pointer-events: none; max-width: 80vw; text-align: center;
+    white-space: nowrap;
+}
+#hint-banner.show { opacity: 1; transform: translate(-50%, 0); }
+#hint-banner .accent { color: var(--accent); font-weight: 600; }
+#hint-banner.warn { color: var(--warning); }
+
+/* ===== Park alignment meter ===== */
+#park-meter {
+    position: absolute; bottom: 200px; left: 50%; transform: translateX(-50%);
+    background: var(--bg-glass);
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--border); border-radius: 12px;
+    padding: 14px 18px; pointer-events: none;
+    opacity: 0; transition: opacity 0.3s;
+    min-width: 240px; box-shadow: var(--shadow-1);
+}
+#park-meter.show { opacity: 1; }
+.meter-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.meter-label { font-size: 10px; text-transform: uppercase; letter-spacing: 1.3px; color: var(--text-muted); }
+.meter-percent { font-family: var(--font-mono); font-size: 13px; font-weight: 600; color: var(--text); }
+.park-bar { height: 6px; background: rgba(255,255,255,0.08); border-radius: 3px; overflow: hidden; position: relative; }
+.park-bar-fill {
+    height: 100%; width: 0%;
+    background: linear-gradient(90deg, var(--warning) 0%, var(--success) 100%);
+    border-radius: 3px; transition: width 0.15s;
+    box-shadow: 0 0 10px rgba(52, 211, 153, 0.4);
+}
+.park-instructions {
+    margin-top: 8px;
+    font-size: 11px; color: var(--text-muted); text-align: center;
+}
+.park-instructions.ready { color: var(--success); font-weight: 600; }
+
+/* ===== Modals ===== */
+.modal-card {
+    background: linear-gradient(180deg, #131a26, #0d121e);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 32px 36px;
+    min-width: 380px; max-width: 420px;
+    box-shadow: var(--shadow-2);
+    text-align: center;
+}
+.modal-card h2 { font-size: 28px; font-weight: 800; margin-bottom: 16px; letter-spacing: -0.5px; }
+.modal-card h2.success { background: linear-gradient(135deg, var(--success), var(--accent)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+
+.stars {
+    font-size: 52px; letter-spacing: 8px;
+    margin: 14px 0 22px; line-height: 1;
+}
+.stars .star { display: inline-block; color: rgba(255,255,255,0.12); transition: color 0.4s; }
+.stars .star.filled {
+    color: var(--warning);
+    text-shadow: 0 0 24px rgba(251, 191, 36, 0.6);
+    animation: pop 0.5s ease-out;
+}
+@keyframes pop {
+    0% { transform: scale(0); }
+    60% { transform: scale(1.3); }
+    100% { transform: scale(1); }
+}
+
+.stat-rows { margin: 14px 0 22px; }
+.stat-row { display: flex; justify-content: space-between; align-items: center; padding: 9px 4px; border-top: 1px solid var(--border); color: var(--text-muted); font-size: 14px; }
+.stat-row:first-of-type { border-top: 0; }
+.stat-row > span:last-child { color: var(--text); font-weight: 600; font-family: var(--font-mono); }
+
+.modal-card .primary-btn,
+.modal-card .secondary-btn { width: 100%; margin-top: 8px; padding: 12px 24px; }
+.modal-actions { display: flex; gap: 10px; margin-top: 12px; }
+.modal-actions button { flex: 1; margin-top: 0; }
+
+/* ===== Toast (small ephemeral notification) ===== */
+#toast {
+    position: fixed; top: 30%; left: 50%; transform: translate(-50%, 0);
+    background: var(--bg-glass);
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--border); border-radius: 12px;
+    padding: 14px 24px;
+    color: var(--text); font-size: 18px; font-weight: 600;
+    pointer-events: none; opacity: 0;
+    transition: opacity 0.3s, transform 0.3s;
+    z-index: 70;
+}
+#toast.show { opacity: 1; transform: translate(-50%, -10px); }
+#toast.success { color: var(--success); }
+#toast.warn { color: var(--warning); }
+
+/* ===== Pause hint ===== */
+.pause-hint {
+    position: absolute; top: 22px; left: 50%; transform: translateX(-50%);
+    color: var(--text-muted); font-size: 11px;
+    background: var(--bg-glass);
+    border: 1px solid var(--border); border-radius: 999px;
+    padding: 4px 12px; pointer-events: none;
+    z-index: 31;
+}
+
+/* ===== Mobile responsiveness ===== */
+@media (max-width: 700px) {
+    .controls-card { min-width: 280px; }
+    .hud-card { min-width: 70px; padding: 8px 12px; }
+    .hud-value { font-size: 18px; }
+    .hud-objective { padding: 8px 14px; font-size: 12px; }
+    .modal-card { min-width: 320px; padding: 24px 22px; }
+}
+</style>
+</head>
+<body>
+
+<!-- ================= TITLE SCREEN ================= -->
+<div id="title-screen" class="screen">
+    <div class="logo">PARK&nbsp;IT!</div>
+    <p class="tagline">
+        Precision parking. <strong>Find the spot.</strong> Mind the bumpers. <strong>Nail the line.</strong>
+    </p>
+    <div class="controls-card">
+        <h3>Controls</h3>
+        <div class="controls-grid">
+            <div class="key">W&nbsp;&nbsp;↑</div><div class="action">Drive forward</div>
+            <div class="key">S&nbsp;&nbsp;↓</div><div class="action">Reverse / brake</div>
+            <div class="key">A D &nbsp;←→</div><div class="action">Steer</div>
+            <div class="key">Space</div><div class="action">Handbrake</div>
+            <div class="key">C</div><div class="action">Cycle camera</div>
+            <div class="key">R</div><div class="action">Reset car</div>
+            <div class="key">P / Esc</div><div class="action">Pause</div>
+        </div>
+    </div>
+    <button class="primary-btn" id="start-btn">Start Game</button>
+</div>
+
+<!-- ================= IN-GAME HUD ================= -->
+<div id="hud" class="hidden">
+    <div class="hud-top">
+        <div class="hud-card">
+            <div class="hud-label">Level</div>
+            <div class="hud-value mono">
+                <span id="level-num">1</span><span class="sep"> / </span><span class="sep" id="level-total">5</span>
+            </div>
+        </div>
+        <div class="hud-objective">
+            <span class="target-icon"></span>
+            <span id="objective-text">Park in the highlighted spot</span>
+        </div>
+        <div class="hud-card" style="text-align:right">
+            <div class="hud-label">Time</div>
+            <div class="hud-value mono" id="time-val">00:00</div>
+        </div>
+    </div>
+
+    <div id="hint-banner"></div>
+
+    <div id="park-meter">
+        <div class="meter-row">
+            <span class="meter-label">Park Alignment</span>
+            <span class="meter-percent" id="meter-percent">0%</span>
+        </div>
+        <div class="park-bar"><div class="park-bar-fill" id="park-bar-fill"></div></div>
+        <div class="park-instructions" id="park-instructions">Center the car in the spot</div>
+    </div>
+
+    <div class="hud-bottom">
+        <div class="hud-card distance-card" id="distance-card">
+            <div class="hud-label">Distance</div>
+            <div class="hud-value mono"><span id="distance-val">—</span><span class="unit">m</span></div>
+        </div>
+
+        <div class="bottom-cluster">
+            <div class="proximity">
+                <div class="prox-arc front" id="prox-front"></div>
+                <div class="prox-arc back"  id="prox-back"></div>
+                <div class="prox-arc left"  id="prox-left"></div>
+                <div class="prox-arc right" id="prox-right"></div>
+                <div class="prox-car"></div>
+            </div>
+            <div class="steer-wheel">
+                <svg viewBox="-50 -50 100 100">
+                    <circle r="42" fill="rgba(255,255,255,0.04)" stroke="rgba(255,255,255,0.1)" stroke-width="2"/>
+                    <circle r="32" fill="none" stroke="rgba(255,255,255,0.05)" stroke-width="2"/>
+                    <g id="steer-rotor">
+                        <line x1="0" y1="0" x2="0" y2="-38" stroke="var(--accent)" stroke-width="4" stroke-linecap="round"/>
+                        <circle r="6" fill="var(--accent)"/>
+                    </g>
+                </svg>
+            </div>
+        </div>
+
+        <div class="hud-card speed-card">
+            <div class="hud-label">Speed</div>
+            <div class="hud-value mono"><span id="speed-val">0</span><span class="unit">km/h</span></div>
+            <div class="gear" id="gear-val">P</div>
+        </div>
+    </div>
+
+    <div id="target-arrow">
+        <svg viewBox="0 0 60 60">
+            <path d="M30 4 L54 32 L40 32 L40 56 L20 56 L20 32 L6 32 Z" fill="var(--accent)"/>
+        </svg>
+    </div>
+
+    <div class="pause-hint">P or Esc to pause • R to reset car</div>
+</div>
+
+<!-- ================= TOAST ================= -->
+<div id="toast"></div>
+
+<!-- ================= PAUSE ================= -->
+<div id="pause-screen" class="screen modal hidden">
+    <div class="modal-card" style="min-width:340px;">
+        <h2>Paused</h2>
+        <button class="primary-btn" id="resume-btn">Resume</button>
+        <button class="secondary-btn" id="restart-btn">Restart Level</button>
+        <button class="secondary-btn" id="menu-btn">Main Menu</button>
+    </div>
+</div>
+
+<!-- ================= LEVEL COMPLETE ================= -->
+<div id="complete-screen" class="screen modal hidden">
+    <div class="modal-card">
+        <h2 class="success" id="complete-title">Parked!</h2>
+        <div class="stars" id="stars-display">
+            <span class="star">★</span><span class="star">★</span><span class="star">★</span>
+        </div>
+        <div class="stat-rows">
+            <div class="stat-row"><span>Time</span><span class="mono" id="final-time">00:00</span></div>
+            <div class="stat-row"><span>Bumps</span><span class="mono" id="final-bumps">0</span></div>
+            <div class="stat-row"><span>Alignment</span><span class="mono" id="final-align">100%</span></div>
+        </div>
+        <div class="modal-actions">
+            <button class="secondary-btn" id="retry-btn">Retry</button>
+            <button class="primary-btn" id="next-btn">Next Level</button>
+        </div>
+    </div>
+</div>
+
+<!-- ================= GAME COMPLETE ================= -->
+<div id="game-complete-screen" class="screen modal hidden">
+    <div class="modal-card">
+        <h2 class="success">All Levels Complete!</h2>
+        <div class="stars" id="total-stars-display"></div>
+        <div class="stat-rows">
+            <div class="stat-row"><span>Total time</span><span class="mono" id="total-time">00:00</span></div>
+            <div class="stat-row"><span>Total bumps</span><span class="mono" id="total-bumps">0</span></div>
+            <div class="stat-row"><span>Stars earned</span><span class="mono" id="total-stars">0 / 15</span></div>
+        </div>
+        <button class="primary-btn" id="play-again-btn">Play Again</button>
+    </div>
+</div>
+
+<script type="importmap">
+{
+    "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
+    }
+}
+</script>
+<script type="module" src="game.js"></script>
+</body>
+</html>
