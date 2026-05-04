@@ -18,9 +18,9 @@ const PHYSICS = {
     BRAKE: 14,
     HANDBRAKE: 26,
     DRAG: 1.4,
-    MAX_SPEED: 8.5,           // m/s ≈ 30 km/h
+    MAX_SPEED: 8.5,
     MAX_REVERSE: -4.5,
-    MAX_STEER: 0.55,          // ~31°
+    MAX_STEER: 0.55,
     STEER_SPEED: 3.4,
     STEER_RETURN: 4.5,
     PARK_SPEED_MAX: 0.35,
@@ -40,14 +40,64 @@ const COLORS = {
 };
 
 // ============================================================================
+// Supabase config
+// ============================================================================
+const SUPABASE_URL = 'https://yfrtgfvxhlzkuprmoluw.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_caxGpS3lEkK_XCo6aqG6eA_RVw_GSBS';
+const GAME_ID = 'parkit';
+const LEADERBOARD_TABLE = 'leaderboards';
+
+async function fetchTopScores(limit = 5) {
+    try {
+        const url = `${SUPABASE_URL}/rest/v1/${LEADERBOARD_TABLE}?game_id=eq.${GAME_ID}&select=player_name,score,created_at&order=score.desc&limit=${limit}`;
+        const res = await fetch(url, {
+            headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
+        });
+        if (!res.ok) {
+            const body = await res.text();
+            throw new Error('fetch failed: ' + res.status + ' ' + body);
+        }
+        const rows = await res.json();
+        return rows.map(r => ({ name: r.player_name, score: r.score, created_at: r.created_at }));
+    } catch (e) {
+        console.warn('leaderboard fetch failed', e);
+        return null;
+    }
+}
+
+async function submitScore(name, score) {
+    try {
+        const url = `${SUPABASE_URL}/rest/v1/${LEADERBOARD_TABLE}`;
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: {
+                apikey: SUPABASE_KEY,
+                Authorization: `Bearer ${SUPABASE_KEY}`,
+                'Content-Type': 'application/json',
+                Prefer: 'return=minimal',
+            },
+            body: JSON.stringify({ game_id: GAME_ID, player_name: name, score }),
+        });
+        if (!res.ok) {
+            const body = await res.text();
+            throw new Error('submit failed: ' + res.status + ' ' + body);
+        }
+        return true;
+    } catch (e) {
+        console.warn('leaderboard submit failed', e);
+        return false;
+    }
+}
+
+// ============================================================================
 // State
 // ============================================================================
 const state = {
-    mode: 'title', // 'title' | 'playing' | 'paused' | 'complete' | 'gameComplete'
+    mode: 'title',
     levelIdx: 0,
     time: 0,
     bumps: 0,
-    cameraMode: 0, // 0 = top-down, 1 = chase
+    cameraMode: 0,
     parkProgress: 0,
     parkHoldTime: 0,
     target: null,
@@ -59,16 +109,28 @@ const state = {
     totalTime: 0,
     totalBumps: 0,
     fadeIn: 0,
+    submittedScore: -1,
 };
 
 const keys = {};
+
+// Touch state for mobile controls
+const touch = {
+    steer: 0,        // -1..+1
+    throttle: 0,     // 0 or 1
+    brake: 0,        // 0 or 1
+    handbrake: false,
+    wheelTouchId: null,
+    wheelStartAngle: 0,
+    wheelStartX: 0,
+    wheelLogicalAngle: 0, // -90..+90 deg
+};
 
 // ============================================================================
 // Math helpers
 // ============================================================================
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 const lerp = (a, b, t) => a + (b - a) * t;
-const smoothLerp = (a, b, dt, halflife) => lerp(a, b, 1 - Math.pow(0.5, dt / halflife));
 
 function shortAngle(a) {
     while (a > Math.PI) a -= Math.PI * 2;
@@ -76,8 +138,6 @@ function shortAngle(a) {
     return a;
 }
 
-// OBB { x, z, w, l, heading } — heading is rotation around Y axis;
-// forward direction is (sin h, 0, cos h), local +X (side) is (cos h, 0, -sin h).
 function obbCorners(o) {
     const fx = Math.sin(o.heading), fz = Math.cos(o.heading);
     const sx = Math.cos(o.heading), sz = -Math.sin(o.heading);
@@ -104,7 +164,6 @@ function projectCorners(corners, axis) {
     }
     return [mn, mx];
 }
-// Returns { mtv: {x,z}, depth } pushing A out of B, or null
 function obbCollide(a, b) {
     const ca = obbCorners(a), cb = obbCorners(b);
     const axes = [...obbAxes(a), ...obbAxes(b)];
@@ -203,7 +262,7 @@ function ensureAudio() {
         engineGain.connect(masterGain);
         engineOsc.start();
         audioReady = true;
-    } catch (e) { /* audio disabled */ }
+    } catch (e) {}
 }
 function setEngine(speed) {
     if (!audioReady) return;
@@ -287,7 +346,6 @@ function buildCarMesh(color, isPlayer = false) {
     body.receiveShadow = true;
     group.add(body);
 
-    // Tapered hood / trunk via two trapezoidal-feeling boxes
     const hoodMat = new THREE.MeshStandardMaterial({ color, roughness: 0.42, metalness: 0.55 });
     const hood = new THREE.Mesh(new THREE.BoxGeometry(CAR.W * 0.96, 0.42, CAR.L * 0.32), hoodMat);
     hood.position.set(0, 0.84, CAR.L * 0.31);
@@ -299,33 +357,28 @@ function buildCarMesh(color, isPlayer = false) {
     trunk.castShadow = true;
     group.add(trunk);
 
-    // Cabin
     const cabinMat = new THREE.MeshStandardMaterial({ color, roughness: 0.42, metalness: 0.5 });
     const cabin = new THREE.Mesh(new THREE.BoxGeometry(CAR.W * 0.92, 0.55, CAR.L * 0.5), cabinMat);
     cabin.position.set(0, 1.16, -0.05);
     cabin.castShadow = true;
     group.add(cabin);
 
-    // Window glass — slightly inset, dark
     const winMat = new THREE.MeshStandardMaterial({ color: 0x0e151f, roughness: 0.15, metalness: 0.85, transparent: true, opacity: 0.78 });
     const wins = new THREE.Mesh(new THREE.BoxGeometry(CAR.W * 0.93, 0.46, CAR.L * 0.5 * 0.95), winMat);
     wins.position.set(0, 1.16, -0.05);
     group.add(wins);
 
-    // Roof cap
     const roof = new THREE.Mesh(new THREE.BoxGeometry(CAR.W * 0.9, 0.05, CAR.L * 0.46), bodyMat);
     roof.position.set(0, 1.46, -0.05);
     roof.castShadow = true;
     group.add(roof);
 
-    // Headlights (front +Z)
     const hlMat = new THREE.MeshStandardMaterial({ color: 0xfff8d8, emissive: 0xfff5b8, emissiveIntensity: 0.35 });
     for (const x of [-0.6, 0.6]) {
         const hl = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.16, 0.08), hlMat);
         hl.position.set(x, 0.74, CAR.L * 0.477);
         group.add(hl);
     }
-    // Tail lights (back -Z)
     const tlMat = new THREE.MeshStandardMaterial({ color: 0xff3344, emissive: 0xaa1122, emissiveIntensity: 0.55 });
     const tlMeshes = [];
     for (const x of [-0.62, 0.62]) {
@@ -333,13 +386,11 @@ function buildCarMesh(color, isPlayer = false) {
         tl.position.set(x, 0.74, -CAR.L * 0.477);
         group.add(tl); tlMeshes.push(tl);
     }
-    // White reverse light
     const revMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0 });
     const reverseLight = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.1, 0.05), revMat);
     reverseLight.position.set(0, 0.6, -CAR.L * 0.477);
     group.add(reverseLight);
 
-    // Wheels
     const wheelMat = new THREE.MeshStandardMaterial({ color: 0x10141c, roughness: 0.95 });
     const rimMat = new THREE.MeshStandardMaterial({ color: 0x9aa3ad, roughness: 0.5, metalness: 0.7 });
     const wheelGeom = new THREE.CylinderGeometry(CAR.WHEEL_R, CAR.WHEEL_R, CAR.WHEEL_W, 16);
@@ -357,7 +408,6 @@ function buildCarMesh(color, isPlayer = false) {
         group.add(wg); wheels[name] = wg;
     }
 
-    // Player accent: black roof stripe
     if (isPlayer) {
         const stripeMat = new THREE.MeshStandardMaterial({ color: 0x0d121e, roughness: 0.5 });
         const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.06, CAR.L * 0.95), stripeMat);
@@ -397,9 +447,8 @@ class PlayerCar {
         this.syncMesh();
     }
     update(dt, throttle, brakeReverse, steerInput, handbrake) {
-        // Steering
         const targetSteer = steerInput * PHYSICS.MAX_STEER;
-        if (steerInput === 0) {
+        if (Math.abs(steerInput) < 0.02) {
             const ret = PHYSICS.STEER_RETURN * dt;
             if (Math.abs(this.steerAngle) <= ret) this.steerAngle = 0;
             else this.steerAngle -= Math.sign(this.steerAngle) * ret;
@@ -408,11 +457,9 @@ class PlayerCar {
             this.steerAngle += clamp(targetSteer - this.steerAngle, -maxDelta, maxDelta);
         }
 
-        // Speed-aware steering: less responsive at high speed (also limits oversteer)
         const speedFrac = Math.min(1, Math.abs(this.speed) / PHYSICS.MAX_SPEED);
         const effSteer = this.steerAngle * (1 - 0.4 * speedFrac);
 
-        // Throttle / brake / reverse
         let isBraking = false;
         if (throttle > 0) {
             this.speed += PHYSICS.ACCEL * throttle * dt;
@@ -433,16 +480,13 @@ class PlayerCar {
         this.speed = clamp(this.speed, PHYSICS.MAX_REVERSE, PHYSICS.MAX_SPEED);
         this.brakeOn = isBraking;
 
-        // Bicycle model
         const dh = (this.speed / CAR.WHEELBASE) * Math.tan(effSteer);
         this.heading += dh * dt;
 
-        // Position update
         const fx = Math.sin(this.heading), fz = Math.cos(this.heading);
         this.x += this.speed * fx * dt;
         this.z += this.speed * fz * dt;
 
-        // Wheel visual rotation
         this.wheelRot += this.speed * dt / CAR.WHEEL_R;
         for (const name of ['fl', 'fr', 'rl', 'rr']) {
             for (const child of this.wheels[name].children) child.rotation.x = this.wheelRot;
@@ -450,7 +494,6 @@ class PlayerCar {
         this.wheels.fl.rotation.y = this.steerAngle;
         this.wheels.fr.rotation.y = this.steerAngle;
 
-        // Brake / reverse light intensities
         const brakeI = isBraking ? 1.4 : 0.55;
         for (const tl of this.tlMeshes) tl.material.emissiveIntensity = brakeI;
         this.reverseLight.material.emissiveIntensity = this.speed < -0.15 ? 0.9 : 0;
@@ -468,7 +511,7 @@ class PlayerCar {
 }
 
 // ============================================================================
-// Static car (parked)
+// Static car
 // ============================================================================
 class StaticCar {
     constructor(x, z, heading, color) {
@@ -477,7 +520,6 @@ class StaticCar {
         this.mesh = built.group;
         this.mesh.position.set(x, 0, z);
         this.mesh.rotation.y = heading;
-        // Slight random subtle Y rotation jitter (-1 to +1 deg) for realism
         scene.add(this.mesh);
     }
     get obb() { return { x: this.x, z: this.z, w: CAR.W, l: CAR.L, heading: this.heading }; }
@@ -497,7 +539,6 @@ function makeSpotOutline(x, z, heading, w, l, color = COLORS.SPOT_LINE, lineW = 
     const group = new THREE.Group();
     const mat = new THREE.MeshBasicMaterial({ color });
     const segs = [];
-    // back (closed)
     if (openSide !== 'back') segs.push({ ox: 0, oz: -l/2, sw: w + lineW, sl: lineW });
     if (openSide !== 'front') segs.push({ ox: 0, oz: l/2, sw: w + lineW, sl: lineW });
     segs.push({ ox: -w/2, oz: 0, sw: lineW, sl: l });
@@ -519,13 +560,11 @@ function makeTargetMarker(target) {
     const group = new THREE.Group();
     const w = target.w || SPOT_W;
     const l = target.l || SPOT_L;
-    // Translucent fill
     const fillMat = new THREE.MeshBasicMaterial({ color: COLORS.TARGET, transparent: true, opacity: 0.18, depthWrite: false });
     const fill = new THREE.Mesh(new THREE.PlaneGeometry(w, l), fillMat);
     fill.rotation.x = -Math.PI / 2;
     fill.position.y = 0.012;
     group.add(fill);
-    // Bright edge outline
     const edgeMat = new THREE.MeshBasicMaterial({ color: COLORS.TARGET });
     const edgeW = 0.18;
     const segs = [
@@ -540,7 +579,6 @@ function makeTargetMarker(target) {
         m.position.set(s.ox, 0.018, s.oz);
         group.add(m);
     }
-    // Direction arrow at the entry side (chevron pointing INTO the spot)
     const arrowMat = new THREE.MeshBasicMaterial({ color: COLORS.TARGET });
     for (let i = 0; i < 2; i++) {
         const g = new THREE.BufferGeometry();
@@ -573,7 +611,6 @@ function makeWall(x, z, heading, w, l) {
     m.castShadow = true;
     m.receiveShadow = true;
     group.add(m);
-    // Yellow caution top stripe
     const stripe = new THREE.Mesh(new THREE.BoxGeometry(w * 1.005, 0.04, l * 1.005), new THREE.MeshStandardMaterial({ color: COLORS.LANE_LINE, roughness: 0.6 }));
     stripe.position.y = 0.41;
     group.add(stripe);
@@ -601,7 +638,6 @@ function clearLot() {
 function buildLot(level) {
     clearLot();
     const lot = level.lot;
-    // Asphalt
     const asphalt = new THREE.Mesh(
         new THREE.PlaneGeometry(lot.w, lot.l, 1, 1),
         new THREE.MeshStandardMaterial({ color: COLORS.ASPHALT, roughness: 0.92 })
@@ -612,7 +648,6 @@ function buildLot(level) {
     scene.add(asphalt);
     state.lotMeshes.push(asphalt);
 
-    // Surrounding grass
     const grass = new THREE.Mesh(
         new THREE.PlaneGeometry(420, 420),
         new THREE.MeshStandardMaterial({ color: COLORS.GRASS, roughness: 1 })
@@ -623,7 +658,6 @@ function buildLot(level) {
     scene.add(grass);
     state.lotMeshes.push(grass);
 
-    // Lot edge markings (yellow border) — drawn as 4 thin planes around the lot
     const lineMat = new THREE.MeshBasicMaterial({ color: COLORS.LANE_LINE });
     for (const e of [
         { x: lot.x, z: lot.z - lot.l/2, w: lot.w, l: 0.18 },
@@ -638,7 +672,6 @@ function buildLot(level) {
         state.lotMeshes.push(m);
     }
 
-    // Spots (painted lines)
     if (level.spots) {
         for (const spot of level.spots) {
             const outline = makeSpotOutline(spot.x, spot.z, spot.heading, spot.w || SPOT_W, spot.l || SPOT_L, COLORS.SPOT_LINE, 0.1, spot.open || 'front');
@@ -647,7 +680,6 @@ function buildLot(level) {
         }
     }
 
-    // Static cars
     for (let i = 0; i < level.cars.length; i++) {
         const c = level.cars[i];
         const color = COLORS.STATIC[i % COLORS.STATIC.length];
@@ -655,7 +687,6 @@ function buildLot(level) {
         state.staticCars.push(sc);
     }
 
-    // Walls / curbs
     if (level.walls) {
         for (const w of level.walls) {
             const wo = makeWall(w.x, w.z, w.heading || 0, w.w, w.l);
@@ -665,28 +696,20 @@ function buildLot(level) {
         }
     }
 
-    // Target
     state.target = level.target;
     state.targetMesh = makeTargetMarker(level.target);
     scene.add(state.targetMesh);
     state.lotMeshes.push(state.targetMesh);
 
-    // Reset player
     player.reset(level.player.x, level.player.z, level.player.heading);
 }
 
 // ============================================================================
 // Levels
 // ============================================================================
-// Heading conventions (around Y axis, right-handed):
-//   0      : car forward = (0,0,+1)  → world south on screen (top-down camera)
-//   π/2    : forward = (+1,0,0)     → east
-//   π      : forward = (0,0,-1)     → north (toward camera)
-//   -π/2   : forward = (-1,0,0)     → west
 const PI = Math.PI;
 const LEVELS = [
     {
-        // L1: Drive forward into a clearly visible spot.
         name: 'First Steps',
         hint: 'Drive forward into the highlighted spot. Stop with the car centered.',
         timeGold: 22, timeSilver: 40,
@@ -706,7 +729,6 @@ const LEVELS = [
         ],
     },
     {
-        // L2: A row of spots, target is between two cars — must be precise.
         name: 'Mind the Gap',
         hint: 'Slot in straight. Watch the proximity sensors on the sides.',
         timeGold: 28, timeSilver: 50,
@@ -728,14 +750,11 @@ const LEVELS = [
         ],
     },
     {
-        // L3: Reverse-in. Target opens AWAY from player approach so they must back in.
         name: 'Back It In',
-        hint: 'Drive past the spot, then reverse in. Use S/↓ to back up.',
+        hint: 'Drive past the spot, then reverse in. Use S/↓ or BRAKE pedal to back up.',
         timeGold: 42, timeSilver: 70,
         lot: { x: 0, z: 0, w: 64, l: 40 },
         player: { x: -22, z: 6, heading: PI / 2 },
-        // Spots row at z=-3 facing 0 (north). Front of spot is at +Z (toward lane). Player nose-in
-        // would require driving backward through the spot, so they must reverse from the lane.
         target: { x: 0, z: -3, heading: 0, w: SPOT_W, l: SPOT_L },
         cars: [
             { x: -10.4, z: -3, heading: 0 }, { x: -7.8, z: -3, heading: 0 },
@@ -750,11 +769,9 @@ const LEVELS = [
             { x: 2.6, z: -3, heading: 0 }, { x: 5.2, z: -3, heading: 0 },
             { x: 7.8, z: -3, heading: 0 }, { x: 10.4, z: -3, heading: 0 },
         ],
-        // A hedge / curb on the back side prevents nose-in cheating
         walls: [{ x: 0, z: -7, w: 60, l: 0.4 }],
     },
     {
-        // L4: Parallel parking between two cars along a curb.
         name: 'Parallel Parking',
         hint: 'Pull alongside, then S-curve in. Aim for the center of the gap.',
         timeGold: 50, timeSilver: 85,
@@ -770,11 +787,9 @@ const LEVELS = [
         spots: [
             { x: 0, z: 1, heading: PI / 2, w: 2.4, l: 6.6 },
         ],
-        // Curb on the far (south) side of the parking row
         walls: [{ x: 0, z: 2.7, w: 60, l: 0.4 }],
     },
     {
-        // L5: Crowded lot with multiple rows. Target is deep inside.
         name: 'Crowded Lot',
         hint: 'Navigate the lanes carefully. The target is in the back row.',
         timeGold: 65, timeSilver: 110,
@@ -783,11 +798,9 @@ const LEVELS = [
         target: { x: 5.2, z: -16, heading: 0, w: SPOT_W, l: SPOT_L },
         cars: (() => {
             const cars = [];
-            // Front row at z=-3 facing PI
             for (const x of [-13, -10.4, -7.8, -5.2, -2.6, 0, 5.2, 7.8, 10.4, 13]) {
                 cars.push({ x, z: -3, heading: PI });
             }
-            // Back row at z=-16 facing 0 (north into lane between rows)
             for (const x of [-13, -10.4, -7.8, -5.2, -2.6, 0, 2.6, 7.8, 10.4, 13]) {
                 cars.push({ x, z: -16, heading: 0 });
             }
@@ -802,13 +815,171 @@ const LEVELS = [
             return spots;
         })(),
         walls: [
-            { x: 0, z: -20, w: 64, l: 0.4 }, // back wall behind back row
+            { x: 0, z: -20, w: 64, l: 0.4 },
+        ],
+    },
+    // ========================================================================
+    // L6: Diagonal Parking — angled spots at 45°
+    // ========================================================================
+    {
+        name: 'Diagonal Park',
+        hint: 'Approach the angled spot head-on along the diagonal. Heading matters!',
+        timeGold: 35, timeSilver: 60,
+        lot: { x: 0, z: 0, w: 70, l: 40 },
+        player: { x: -22, z: 12, heading: PI / 2 },
+        target: { x: 1, z: -2, heading: PI - PI / 4, w: SPOT_W, l: SPOT_L },
+        cars: (() => {
+            const cars = [];
+            const angle = PI - PI / 4;
+            const spacing = 3.6;
+            for (let i = -3; i <= 3; i++) {
+                if (i === 0) continue;
+                cars.push({ x: 1 + i * spacing, z: -2 + i * 0.0, heading: angle });
+            }
+            return cars;
+        })(),
+        spots: (() => {
+            const spots = [];
+            const angle = PI - PI / 4;
+            const spacing = 3.6;
+            for (let i = -3; i <= 3; i++) {
+                spots.push({ x: 1 + i * spacing, z: -2, heading: angle });
+            }
+            return spots;
+        })(),
+        walls: [{ x: 0, z: -8, w: 64, l: 0.4 }],
+    },
+    // ========================================================================
+    // L7: Tight Squeeze — extremely narrow gap, both sides cars very close
+    // ========================================================================
+    {
+        name: 'Tight Squeeze',
+        hint: 'Centimeters to spare. Approach slowly and keep dead straight.',
+        timeGold: 40, timeSilver: 75,
+        lot: { x: 0, z: -2, w: 60, l: 36 },
+        player: { x: 0, z: 11, heading: PI },
+        target: { x: 0, z: -3, heading: PI, w: 2.15, l: SPOT_L },
+        cars: [
+            { x: -10.4, z: -3, heading: PI }, { x: -7.8, z: -3, heading: PI },
+            { x: -5.2, z: -3, heading: PI },
+            { x: -2.25, z: -3, heading: PI },
+            { x: 2.25, z: -3, heading: PI },
+            { x: 5.2, z: -3, heading: PI }, { x: 7.8, z: -3, heading: PI },
+            { x: 10.4, z: -3, heading: PI },
+        ],
+        spots: [
+            { x: -10.4, z: -3, heading: PI }, { x: -7.8, z: -3, heading: PI },
+            { x: -5.2, z: -3, heading: PI },
+            { x: -2.25, z: -3, heading: PI }, { x: 0, z: -3, heading: PI, w: 2.15 },
+            { x: 2.25, z: -3, heading: PI },
+            { x: 5.2, z: -3, heading: PI }, { x: 7.8, z: -3, heading: PI },
+            { x: 10.4, z: -3, heading: PI },
+        ],
+    },
+    // ========================================================================
+    // L8: Reverse Parallel — parallel parking with cars on both sides + curb
+    // ========================================================================
+    {
+        name: 'Reverse Parallel',
+        hint: 'Pull past, reverse in at an angle, then straighten. Curb on your right!',
+        timeGold: 55, timeSilver: 95,
+        lot: { x: 0, z: -2, w: 70, l: 30 },
+        player: { x: -22, z: 4.5, heading: PI / 2 },
+        target: { x: 0, z: 1, heading: PI / 2, w: 2.35, l: 6.4 },
+        cars: [
+            { x: -7.4, z: 1, heading: PI / 2 },
+            { x: 7.4, z: 1, heading: PI / 2 },
+            { x: -14.5, z: 1, heading: PI / 2 },
+            { x: 14.5, z: 1, heading: PI / 2 },
+            { x: -21.5, z: 1, heading: PI / 2 },
+        ],
+        spots: [{ x: 0, z: 1, heading: PI / 2, w: 2.35, l: 6.4 }],
+        walls: [
+            { x: 0, z: 2.7, w: 64, l: 0.4 },
+            { x: 0, z: -8, w: 64, l: 0.4 },
+        ],
+    },
+    // ========================================================================
+    // L9: The Maze — winding path through staggered rows
+    // ========================================================================
+    {
+        name: 'The Maze',
+        hint: 'Wind between the staggered rows. The target is deep in the back.',
+        timeGold: 80, timeSilver: 130,
+        lot: { x: 0, z: -4, w: 76, l: 60 },
+        player: { x: -32, z: 22, heading: PI / 2 },
+        target: { x: 12, z: -22, heading: 0, w: SPOT_W, l: SPOT_L },
+        cars: (() => {
+            const cars = [];
+            // Row 1 at z=10 (front), gap at x=-15
+            for (const x of [-25, -20, -10, -5, 0, 5, 10, 15, 20, 25]) {
+                cars.push({ x, z: 10, heading: PI });
+            }
+            // Row 2 at z=2 (mid), gap at x=8
+            for (const x of [-25, -20, -15, -10, -5, 0, 12, 18, 23]) {
+                cars.push({ x, z: 2, heading: 0 });
+            }
+            // Row 3 at z=-10 (back front), gap at x=-3
+            for (const x of [-25, -20, -15, -10, 3, 8, 14, 20, 25]) {
+                cars.push({ x, z: -10, heading: PI });
+            }
+            // Back row at z=-22 surrounds target
+            for (const x of [-25, -20, -15, -10, -5, 0, 5, 9.4, 14.6, 20, 25]) {
+                cars.push({ x, z: -22, heading: 0 });
+            }
+            return cars;
+        })(),
+        spots: (() => {
+            const spots = [];
+            for (const x of [-25, -20, -15, -10, -5, 0, 5, 10, 15, 20, 25]) {
+                spots.push({ x, z: 10, heading: PI });
+                spots.push({ x, z: -10, heading: PI });
+            }
+            for (const x of [-25, -20, -15, -10, -5, 0, 6, 12, 18, 23]) {
+                spots.push({ x, z: 2, heading: 0 });
+            }
+            for (const x of [-25, -20, -15, -10, -5, 0, 5, 9.4, 12, 14.6, 20, 25]) {
+                spots.push({ x, z: -22, heading: 0 });
+            }
+            return spots;
+        })(),
+        walls: [{ x: 0, z: -27, w: 70, l: 0.4 }],
+    },
+    // ========================================================================
+    // L10: Final Test — narrow reverse parallel in a very tight lot
+    // ========================================================================
+    {
+        name: 'Final Test',
+        hint: 'No room for error. Reverse parallel, narrow gap, perfect line.',
+        timeGold: 100, timeSilver: 160,
+        lot: { x: 0, z: -2, w: 64, l: 38 },
+        player: { x: -18, z: 8, heading: PI / 2 },
+        target: { x: 0, z: 1, heading: PI / 2, w: 2.25, l: 6.0 },
+        cars: [
+            // Parallel row in front of curb
+            { x: -7.0, z: 1, heading: PI / 2 },
+            { x: 7.0, z: 1, heading: PI / 2 },
+            { x: -13.5, z: 1, heading: PI / 2 },
+            { x: 13.5, z: 1, heading: PI / 2 },
+            // Cars behind on the lane to constrain backing path
+            { x: -7.8, z: -7, heading: 0 }, { x: -2.6, z: -7, heading: 0 },
+            { x: 2.6, z: -7, heading: 0 }, { x: 7.8, z: -7, heading: 0 },
+            { x: -13.0, z: -7, heading: 0 }, { x: 13.0, z: -7, heading: 0 },
+            // Cars in front of target lane to make entry tight
+            { x: -16, z: 8, heading: PI / 2 },
+        ],
+        spots: [
+            { x: 0, z: 1, heading: PI / 2, w: 2.25, l: 6.0 },
+        ],
+        walls: [
+            { x: 0, z: 2.7, w: 60, l: 0.4 },
+            { x: 0, z: -11, w: 60, l: 0.4 },
         ],
     },
 ];
 
 // ============================================================================
-// Path preview (steering hint line on the ground)
+// Path preview
 // ============================================================================
 const PATH_POINTS = 36;
 const pathGeom = new THREE.BufferGeometry();
@@ -839,25 +1010,21 @@ function updatePathPreview() {
 }
 
 // ============================================================================
-// Park detection / scoring
+// Park detection
 // ============================================================================
 function computeParkScore() {
     if (!state.target) return { progress: 0, aligned: false, parked: false, alignment: 0 };
     const t = state.target;
     const tw = t.w || SPOT_W;
     const tl = t.l || SPOT_L;
-    // Distance between centers
     const dx = player.x - t.x, dz = player.z - t.z;
     const dist = Math.hypot(dx, dz);
-    // Heading delta (allow flipped — both forward and reversed-in count, since car shape is symmetric for parking)
     const angleDelta = Math.abs(shortAngle(player.heading - t.heading));
     const angleFlipped = Math.abs(shortAngle(player.heading - t.heading - PI));
     const angleErr = Math.min(angleDelta, angleFlipped);
-    // Car footprint inside target spot — check 4 corners
     const corners = obbCorners(player.obb);
     let inside = 0;
     for (const c of corners) {
-        // Transform into target's local frame
         const ddx = c.x - t.x, ddz = c.z - t.z;
         const fx = Math.sin(t.heading), fz = Math.cos(t.heading);
         const sx = Math.cos(t.heading), sz = -Math.sin(t.heading);
@@ -867,7 +1034,6 @@ function computeParkScore() {
     }
     const insideFrac = inside / 4;
 
-    // Centering score (1 when centered, 0 at edges of target)
     const ddx = (player.x - t.x);
     const ddz = (player.z - t.z);
     const fx = Math.sin(t.heading), fz = Math.cos(t.heading);
@@ -894,11 +1060,9 @@ let camShake = 0;
 function shake(amt) { camShake = Math.max(camShake, amt); }
 function updateCamera(dt) {
     if (state.cameraMode === 0) {
-        // Top-down with slight tilt south for chase angle
         camDesired.set(player.x, 24, player.z + 11);
         camLookDesired.set(player.x, 0, player.z);
     } else {
-        // Chase camera (rotates with car)
         const fx = Math.sin(player.heading), fz = Math.cos(player.heading);
         camDesired.set(player.x - fx * 8, 4.5, player.z - fz * 8);
         camLookDesired.set(player.x + fx * 4, 1.2, player.z + fz * 4);
@@ -925,23 +1089,19 @@ function resolveCollisions() {
     for (const o of obstacles) {
         const res = obbCollide(player.obb, o.obb);
         if (!res) continue;
-        // Push player out
         player.x += res.mtv.x;
         player.z += res.mtv.z;
-        // Kill velocity component along the normal of the contact
         const nLen = Math.hypot(res.mtv.x, res.mtv.z);
         if (nLen > 0) {
             const nx = res.mtv.x / nLen, nz = res.mtv.z / nLen;
             const fx = Math.sin(player.heading), fz = Math.cos(player.heading);
             const fwdAlongN = fx * nx + fz * nz;
-            // Stop forward component if heading into obstacle
             if (Math.sign(player.speed) === Math.sign(fwdAlongN) && fwdAlongN !== 0) {
                 player.speed *= 0.1;
             } else {
                 player.speed *= 0.45;
             }
         }
-        // Bump counted only outside cooldown
         if (player.contactCooldown <= 0 && Math.abs(player.speed) > 0.4) {
             state.bumps++;
             shake(0.18);
@@ -977,7 +1137,7 @@ function getProximityDistances() {
 }
 
 // ============================================================================
-// HUD
+// HUD elements
 // ============================================================================
 const $ = id => document.getElementById(id);
 const els = {
@@ -986,6 +1146,7 @@ const els = {
     pause: $('pause-screen'),
     complete: $('complete-screen'),
     gameComplete: $('game-complete-screen'),
+    leaderboardScreen: $('leaderboard-screen'),
     objective: $('objective-text'),
     levelNum: $('level-num'),
     levelTotal: $('level-total'),
@@ -1015,6 +1176,18 @@ const els = {
     totalTime: $('total-time'),
     totalBumps: $('total-bumps'),
     totalStars: $('total-stars'),
+    totalScore: $('total-score'),
+    playerName: $('player-name'),
+    submitScoreBtn: $('submit-score-btn'),
+    nameEntrySection: $('name-entry-section'),
+    completeLeaderboard: $('game-complete-leaderboard'),
+    standaloneLeaderboard: $('standalone-leaderboard'),
+    touchWheel: $('touch-wheel'),
+    touchWheelRotor: $('touch-wheel-rotor'),
+    pedalAccel: $('pedal-accel'),
+    pedalBrake: $('pedal-brake'),
+    touchHandbrake: $('touch-handbrake'),
+    touchCam: $('touch-cam'),
 };
 
 let toastTimer = null;
@@ -1035,9 +1208,6 @@ function showHint(text, kind = '', duration = 2200) {
     if (hintTimer) clearTimeout(hintTimer);
     if (duration) hintTimer = setTimeout(() => els.hintBanner.classList.remove('show'), duration);
 }
-function hideHint() {
-    els.hintBanner.classList.remove('show');
-}
 
 function fmtTime(t) {
     const m = Math.floor(t / 60);
@@ -1046,16 +1216,12 @@ function fmtTime(t) {
 }
 
 function updateHUD(prox, parkScore) {
-    // Time
     els.timeVal.textContent = fmtTime(state.time);
-    // Distance to target
     const tx = state.target.x, tz = state.target.z;
     const dist = Math.hypot(player.x - tx, player.z - tz);
     els.distanceVal.textContent = dist.toFixed(1);
     els.distanceCard.classList.toggle('close', dist < 4);
-    // Speed
     els.speedVal.textContent = Math.round(player.speedKmh);
-    // Gear
     if (parkScore.parked) {
         els.gearVal.textContent = 'P'; els.gearVal.className = 'gear park';
     } else if (player.speed < -0.15) {
@@ -1065,7 +1231,6 @@ function updateHUD(prox, parkScore) {
     } else {
         els.gearVal.textContent = 'D'; els.gearVal.className = 'gear';
     }
-    // Proximity arcs
     function setArc(el, d) {
         el.classList.remove('warn', 'danger');
         if (d < 0.35) el.classList.add('danger');
@@ -1075,11 +1240,14 @@ function updateHUD(prox, parkScore) {
     setArc(els.proxBack, prox.back);
     setArc(els.proxLeft, prox.left);
     setArc(els.proxRight, prox.right);
-    // Steering wheel rotation (visualize steering input)
     const steerDeg = (player.steerAngle / PHYSICS.MAX_STEER) * 90;
     els.steerRotor.setAttribute('transform', `rotate(${-steerDeg})`);
 
-    // Off-screen target arrow
+    // Touch wheel rotor follows actual steering angle (visual feedback even if user releases)
+    if (els.touchWheelRotor) {
+        els.touchWheelRotor.style.transform = `rotate(${-steerDeg}deg)`;
+    }
+
     const tVec = new THREE.Vector3(tx, 0, tz).project(camera);
     const onScreen = tVec.x > -0.92 && tVec.x < 0.92 && tVec.y > -0.92 && tVec.y < 0.92 && tVec.z < 1;
     if (onScreen) {
@@ -1106,7 +1274,6 @@ function updateHUD(prox, parkScore) {
         els.targetArrow.style.transform = `translate(-50%, -50%) rotate(${ang}rad)`;
     }
 
-    // Park alignment meter (appears when close enough)
     if (dist < 7) {
         els.parkMeter.classList.add('show');
         const pct = Math.round(parkScore.alignment * 100);
@@ -1145,6 +1312,7 @@ function startGame() {
     state.totalTime = 0;
     state.totalBumps = 0;
     state.levelIdx = 0;
+    state.submittedScore = -1;
     loadLevel(0);
 }
 function loadLevel(idx) {
@@ -1160,10 +1328,12 @@ function loadLevel(idx) {
     els.levelTotal.textContent = LEVELS.length.toString();
     els.objective.textContent = lv.name;
     state.mode = 'playing';
+    document.body.classList.add('playing');
     els.title.classList.add('hidden');
     els.pause.classList.add('hidden');
     els.complete.classList.add('hidden');
     els.gameComplete.classList.add('hidden');
+    els.leaderboardScreen.classList.add('hidden');
     els.hud.classList.remove('hidden');
     showHint(lv.hint, '', 4500);
     showToast(`Level ${idx + 1}: ${lv.name}`, '', 1500);
@@ -1171,11 +1341,13 @@ function loadLevel(idx) {
 function pauseGame() {
     if (state.mode !== 'playing') return;
     state.mode = 'paused';
+    document.body.classList.remove('playing');
     els.pause.classList.remove('hidden');
 }
 function resumeGame() {
     if (state.mode !== 'paused') return;
     state.mode = 'playing';
+    document.body.classList.add('playing');
     els.pause.classList.add('hidden');
 }
 function restartLevel() {
@@ -1185,6 +1357,7 @@ function restartLevel() {
 }
 function backToMenu() {
     state.mode = 'title';
+    document.body.classList.remove('playing');
     els.pause.classList.add('hidden');
     els.complete.classList.add('hidden');
     els.gameComplete.classList.add('hidden');
@@ -1193,10 +1366,8 @@ function backToMenu() {
 }
 function completeLevel(parkScore) {
     state.mode = 'complete';
+    document.body.classList.remove('playing');
     const lv = LEVELS[state.levelIdx];
-    // Stars: 3 = 0 bumps + good alignment + meet gold time
-    //        2 = ≤1 bump or alignment ≥ 0.85 (and silver time)
-    //        1 = parked
     let stars = 1;
     const align = parkScore.alignment;
     const fastEnough = state.time <= lv.timeGold;
@@ -1207,7 +1378,6 @@ function completeLevel(parkScore) {
     state.totalTime += state.time;
     state.totalBumps += state.bumps;
 
-    // Animate stars
     const starEls = els.starsDisplay.querySelectorAll('.star');
     starEls.forEach(s => s.classList.remove('filled'));
     let i = 0;
@@ -1232,8 +1402,17 @@ function nextLevel() {
         showGameComplete();
     }
 }
+
+function computeFinalScore() {
+    const totalStars = state.levelStars.reduce((a, b) => a + (b || 0), 0);
+    const timeBonus = Math.max(0, 800 - Math.floor(state.totalTime));
+    const bumpPenalty = state.totalBumps * 25;
+    return Math.max(0, totalStars * 100 + timeBonus - bumpPenalty);
+}
+
 function showGameComplete() {
     state.mode = 'gameComplete';
+    document.body.classList.remove('playing');
     els.hud.classList.add('hidden');
     const totalStars = state.levelStars.reduce((a, b) => a + (b || 0), 0);
     const max = LEVELS.length * 3;
@@ -1245,8 +1424,70 @@ function showGameComplete() {
     els.totalTime.textContent = fmtTime(state.totalTime);
     els.totalBumps.textContent = state.totalBumps.toString();
     els.totalStars.textContent = `${totalStars} / ${max}`;
+    const score = computeFinalScore();
+    els.totalScore.textContent = score.toString();
+    state.pendingScore = score;
+    state.submittedScore = -1;
+    els.nameEntrySection.style.display = '';
+    els.submitScoreBtn.style.display = '';
+    els.submitScoreBtn.disabled = false;
+    els.submitScoreBtn.textContent = 'Submit Score';
+    const savedName = localStorage.getItem('parkit_name') || '';
+    els.playerName.value = savedName;
+    els.completeLeaderboard.innerHTML = '<div class="lb-loading">Loading leaderboard…</div>';
     els.gameComplete.classList.remove('hidden');
     playChime();
+    refreshLeaderboard(els.completeLeaderboard, savedName);
+}
+
+async function refreshLeaderboard(container, highlightName = '') {
+    container.innerHTML = '<div class="lb-loading">Loading leaderboard…</div>';
+    const rows = await fetchTopScores(5);
+    if (rows === null) {
+        container.innerHTML = '<div class="lb-empty">Could not load leaderboard.<br/>Check connection.</div>';
+        return;
+    }
+    if (rows.length === 0) {
+        container.innerHTML = '<div class="lb-title">Top 5</div><div class="lb-empty">No scores yet — be the first!</div>';
+        return;
+    }
+    let html = '<div class="leaderboard-title">Top 5 <span>game: ' + GAME_ID + '</span></div><ol>';
+    rows.forEach((r, i) => {
+        const isMe = highlightName && r.name === highlightName;
+        const safeName = (r.name || 'Anonymous').replace(/[<>&"']/g, c => ({ '<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;' }[c]));
+        html += `<li class="lb-row${isMe ? ' me' : ''}">
+            <span class="lb-rank">${i + 1}</span>
+            <span class="lb-name">${safeName}</span>
+            <span class="lb-score">${r.score}</span>
+        </li>`;
+    });
+    html += '</ol>';
+    container.innerHTML = html;
+}
+
+async function handleSubmitScore() {
+    const rawName = els.playerName.value.trim();
+    const name = rawName ? rawName.slice(0, 20) : 'Anonymous';
+    const score = state.pendingScore;
+    els.submitScoreBtn.disabled = true;
+    els.submitScoreBtn.textContent = 'Submitting…';
+    localStorage.setItem('parkit_name', name);
+    const ok = await submitScore(name, score);
+    if (ok) {
+        state.submittedScore = score;
+        els.submitScoreBtn.textContent = 'Submitted ✓';
+        showToast('Score submitted!', 'success', 1400);
+        await refreshLeaderboard(els.completeLeaderboard, name);
+    } else {
+        els.submitScoreBtn.textContent = 'Retry submit';
+        els.submitScoreBtn.disabled = false;
+        showToast('Submit failed — try again', 'warn', 1800);
+    }
+}
+
+function showLeaderboardModal() {
+    els.leaderboardScreen.classList.remove('hidden');
+    refreshLeaderboard(els.standaloneLeaderboard);
 }
 
 // ============================================================================
@@ -1275,14 +1516,136 @@ window.addEventListener('keyup', (e) => {
 });
 
 function getInput() {
-    const throttle = (keys['KeyW'] || keys['ArrowUp']) ? 1 : 0;
-    const brakeReverse = (keys['KeyS'] || keys['ArrowDown']) ? 1 : 0;
+    let throttle = (keys['KeyW'] || keys['ArrowUp']) ? 1 : 0;
+    let brakeReverse = (keys['KeyS'] || keys['ArrowDown']) ? 1 : 0;
     let steer = 0;
     if (keys['KeyA'] || keys['ArrowLeft']) steer += 1;
     if (keys['KeyD'] || keys['ArrowRight']) steer -= 1;
-    const handbrake = !!keys['Space'];
+    let handbrake = !!keys['Space'];
+
+    // Merge touch input
+    if (touch.throttle) throttle = 1;
+    if (touch.brake) brakeReverse = 1;
+    if (Math.abs(touch.steer) > 0.02) steer = touch.steer;
+    if (touch.handbrake) handbrake = true;
+
     return { throttle, brakeReverse, steer, handbrake };
 }
+
+// ============================================================================
+// Mobile detection + touch handlers
+// ============================================================================
+const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+if (isTouchDevice) document.body.classList.add('touch-device');
+
+// Steering wheel: track touch, compute angle from center → set touch.steer in -1..+1
+function setupTouchWheel() {
+    const wheel = els.touchWheel;
+    if (!wheel) return;
+
+    function getCenter() {
+        const r = wheel.getBoundingClientRect();
+        return { cx: r.left + r.width / 2, cy: r.top + r.height / 2 };
+    }
+
+    let activeId = null;
+    let initialAngle = 0;     // angle at touch start (radians)
+    let initialLogical = 0;   // logical wheel angle at start (radians)
+
+    function angleFrom(center, x, y) {
+        return Math.atan2(y - center.cy, x - center.cx);
+    }
+
+    function onStart(id, x, y) {
+        if (activeId !== null) return;
+        activeId = id;
+        const c = getCenter();
+        initialAngle = angleFrom(c, x, y);
+        initialLogical = touch.wheelLogicalAngle;
+    }
+    function onMove(id, x, y) {
+        if (id !== activeId) return;
+        const c = getCenter();
+        const a = angleFrom(c, x, y);
+        let delta = a - initialAngle;
+        // wrap
+        while (delta > Math.PI) delta -= Math.PI * 2;
+        while (delta < -Math.PI) delta += Math.PI * 2;
+        // logical angle: clamp to ±90°
+        const newLogical = clamp(initialLogical + delta, -Math.PI / 2, Math.PI / 2);
+        touch.wheelLogicalAngle = newLogical;
+        // steer is opposite of wheel rotation: rotating wheel clockwise (positive screen angle) → turn right → steer = -1 in our convention (matches D key)
+        touch.steer = clamp(-newLogical / (Math.PI / 2), -1, 1);
+    }
+    function onEnd(id) {
+        if (id !== activeId) return;
+        activeId = null;
+        // Auto-return to center
+        // We don't snap immediately; let getInput return current touch.steer = 0 after fade
+        touch.wheelLogicalAngle = 0;
+        touch.steer = 0;
+    }
+
+    wheel.addEventListener('touchstart', e => {
+        e.preventDefault();
+        const t = e.changedTouches[0];
+        onStart(t.identifier, t.clientX, t.clientY);
+    }, { passive: false });
+    wheel.addEventListener('touchmove', e => {
+        e.preventDefault();
+        for (const t of e.changedTouches) onMove(t.identifier, t.clientX, t.clientY);
+    }, { passive: false });
+    wheel.addEventListener('touchend', e => {
+        for (const t of e.changedTouches) onEnd(t.identifier);
+    });
+    wheel.addEventListener('touchcancel', e => {
+        for (const t of e.changedTouches) onEnd(t.identifier);
+    });
+
+    // Mouse fallback for desktop testing
+    let mouseDown = false;
+    wheel.addEventListener('mousedown', e => {
+        e.preventDefault();
+        mouseDown = true;
+        onStart(-1, e.clientX, e.clientY);
+    });
+    window.addEventListener('mousemove', e => {
+        if (mouseDown) onMove(-1, e.clientX, e.clientY);
+    });
+    window.addEventListener('mouseup', e => {
+        if (mouseDown) { mouseDown = false; onEnd(-1); }
+    });
+}
+
+function setupPedal(el, onPress, onRelease) {
+    if (!el) return;
+    const press = e => {
+        if (e.cancelable) e.preventDefault();
+        el.classList.add('pressed');
+        onPress();
+    };
+    const release = e => {
+        el.classList.remove('pressed');
+        onRelease();
+    };
+    el.addEventListener('touchstart', press, { passive: false });
+    el.addEventListener('touchend', release);
+    el.addEventListener('touchcancel', release);
+    el.addEventListener('mousedown', press);
+    el.addEventListener('mouseup', release);
+    el.addEventListener('mouseleave', e => { if (el.classList.contains('pressed')) release(e); });
+}
+
+setupTouchWheel();
+setupPedal(els.pedalAccel, () => { touch.throttle = 1; }, () => { touch.throttle = 0; });
+setupPedal(els.pedalBrake, () => { touch.brake = 1; }, () => { touch.brake = 0; });
+setupPedal(els.touchHandbrake, () => { touch.handbrake = true; }, () => { touch.handbrake = false; });
+els.touchCam.addEventListener('click', () => {
+    if (state.mode === 'playing') {
+        state.cameraMode = (state.cameraMode + 1) % 2;
+        showToast(state.cameraMode === 0 ? 'Top-down' : 'Chase cam', '', 900);
+    }
+});
 
 // ============================================================================
 // Wire up UI buttons
@@ -1291,19 +1654,36 @@ $('start-btn').addEventListener('click', () => {
     ensureAudio();
     startGame();
 });
+$('leaderboard-btn').addEventListener('click', showLeaderboardModal);
+$('leaderboard-close-btn').addEventListener('click', () => {
+    els.leaderboardScreen.classList.add('hidden');
+});
 $('resume-btn').addEventListener('click', resumeGame);
 $('restart-btn').addEventListener('click', restartLevel);
 $('menu-btn').addEventListener('click', backToMenu);
 $('retry-btn').addEventListener('click', () => { els.complete.classList.add('hidden'); loadLevel(state.levelIdx); });
 $('next-btn').addEventListener('click', nextLevel);
 $('play-again-btn').addEventListener('click', () => { els.gameComplete.classList.add('hidden'); startGame(); });
+$('pause-btn').addEventListener('click', () => {
+    if (state.mode === 'playing') pauseGame();
+});
+$('reset-btn').addEventListener('click', () => {
+    if (state.mode === 'playing') {
+        const lv = LEVELS[state.levelIdx];
+        player.reset(lv.player.x, lv.player.z, lv.player.heading);
+        showToast('Car reset', '', 800);
+    }
+});
+els.submitScoreBtn.addEventListener('click', handleSubmitScore);
+// Submit on Enter in name field
+els.playerName.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); handleSubmitScore(); }
+});
 
 // ============================================================================
 // Bootstrap
 // ============================================================================
 const player = new PlayerCar();
-
-// Place a small idle scene behind the title so it's not blank
 buildLot(LEVELS[0]);
 
 let lastTime = 0;
@@ -1322,7 +1702,6 @@ function tick(time) {
         updateProximityAudio(minProx);
 
         const parkScore = computeParkScore();
-        // Hold-to-park
         if (parkScore.parked) {
             state.parkHoldTime += dt;
             if (state.parkHoldTime >= PHYSICS.PARK_HOLD_TIME) {
@@ -1338,7 +1717,6 @@ function tick(time) {
         setEngine(player.speed);
     } else {
         setEngine(0);
-        // Still update camera on pause / title for nice idle motion
         updateTargetPulse(time);
         updatePathPreview();
     }
