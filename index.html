@@ -2,7 +2,9 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover,user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0b0f17">
 <title>Park It! — Precision Parking</title>
 <style>
 :root {
@@ -23,9 +25,11 @@
     --radius-sm: 8px;
     --font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
     --font-mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+    --safe-t: env(safe-area-inset-top, 0px);
+    --safe-b: env(safe-area-inset-bottom, 0px);
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
-html, body { width: 100%; height: 100%; background: var(--bg-0); color: var(--text); font-family: var(--font-ui); overflow: hidden; user-select: none; -webkit-user-select: none; }
+html, body { width: 100%; height: 100%; background: var(--bg-0); color: var(--text); font-family: var(--font-ui); overflow: hidden; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; touch-action: none; overscroll-behavior: none; }
 canvas { display: block; position: absolute; top: 0; left: 0; }
 .hidden { display: none !important; }
 
@@ -46,7 +50,8 @@ canvas { display: block; position: absolute; top: 0; left: 0; }
         radial-gradient(ellipse at bottom left, rgba(34,211,238,0.22), transparent 55%),
         linear-gradient(135deg, #07101e, #131a26 60%, #0a0f1a);
     display: flex; flex-direction: column; align-items: center; justify-content: center;
-    padding: 32px;
+    padding: calc(32px + var(--safe-t)) 32px calc(32px + var(--safe-b));
+    overflow-y: auto;
 }
 .logo {
     font-size: clamp(56px, 9vw, 104px);
@@ -56,7 +61,7 @@ canvas { display: block; position: absolute; top: 0; left: 0; }
     -webkit-background-clip: text; background-clip: text; color: transparent;
     text-shadow: 0 0 60px rgba(34,211,238,0.15);
 }
-.tagline { color: var(--text-muted); font-size: 17px; margin-bottom: 36px; text-align: center; max-width: 480px; line-height: 1.55; }
+.tagline { color: var(--text-muted); font-size: 17px; margin-bottom: 28px; text-align: center; max-width: 480px; line-height: 1.55; }
 .tagline strong { color: var(--accent); font-weight: 600; }
 
 .controls-card {
@@ -64,14 +69,14 @@ canvas { display: block; position: absolute; top: 0; left: 0; }
     backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    padding: 22px 26px; box-shadow: var(--shadow-1);
-    margin-bottom: 32px; min-width: 360px;
+    padding: 18px 22px; box-shadow: var(--shadow-1);
+    margin-bottom: 24px; min-width: 320px;
 }
 .controls-card h3 {
     font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.6px;
-    color: var(--text-muted); margin-bottom: 16px;
+    color: var(--text-muted); margin-bottom: 14px;
 }
-.controls-grid { display: grid; grid-template-columns: auto 1fr; gap: 10px 18px; align-items: center; }
+.controls-grid { display: grid; grid-template-columns: auto 1fr; gap: 9px 18px; align-items: center; }
 .key {
     background: rgba(255,255,255,0.06);
     border: 1px solid var(--border);
@@ -83,10 +88,16 @@ canvas { display: block; position: absolute; top: 0; left: 0; }
 }
 .action { color: var(--text-muted); font-size: 14px; }
 
+.title-actions { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+
+/* On touch devices show the touch controls reference instead of keyboard */
+body.touch-device .controls-card.kbd { display: none; }
+body:not(.touch-device) .controls-card.touch { display: none; }
+
 /* ===== Buttons ===== */
 .primary-btn, .secondary-btn {
     border: none; border-radius: 10px;
-    padding: 14px 32px;
+    padding: 14px 28px;
     font-family: inherit; font-size: 15px; font-weight: 600;
     cursor: pointer; transition: transform 0.15s, box-shadow 0.15s, background 0.2s;
     letter-spacing: 0.3px;
@@ -107,8 +118,8 @@ canvas { display: block; position: absolute; top: 0; left: 0; }
 #hud { position: fixed; inset: 0; z-index: 30; pointer-events: none; }
 
 .hud-top {
-    position: absolute; top: 22px; left: 22px; right: 22px;
-    display: flex; justify-content: space-between; align-items: flex-start; gap: 14px;
+    position: absolute; top: calc(18px + var(--safe-t)); left: 18px; right: 18px;
+    display: flex; justify-content: space-between; align-items: flex-start; gap: 10px;
 }
 
 .hud-card {
@@ -116,12 +127,12 @@ canvas { display: block; position: absolute; top: 0; left: 0; }
     backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
-    padding: 9px 16px; box-shadow: var(--shadow-1);
+    padding: 8px 14px; box-shadow: var(--shadow-1);
     pointer-events: auto;
-    min-width: 90px;
+    min-width: 80px;
 }
 .hud-label { color: var(--text-muted); font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 1.3px; }
-.hud-value { color: var(--text); font-size: 22px; font-weight: 700; line-height: 1.1; margin-top: 2px; }
+.hud-value { color: var(--text); font-size: 20px; font-weight: 700; line-height: 1.1; margin-top: 2px; }
 .hud-value.mono { font-family: var(--font-mono); font-feature-settings: 'tnum' 1; }
 .hud-value .unit { font-size: 11px; color: var(--text-muted); margin-left: 4px; font-weight: 500; }
 .hud-value .sep { color: var(--text-muted); font-size: 13px; font-weight: 500; }
@@ -131,28 +142,28 @@ canvas { display: block; position: absolute; top: 0; left: 0; }
     backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
     border: 1px solid var(--border);
     border-radius: 999px;
-    padding: 11px 22px;
-    color: var(--text); font-size: 14px; font-weight: 500;
-    box-shadow: var(--shadow-1); align-self: center; text-align: center; max-width: 60vw;
+    padding: 10px 18px;
+    color: var(--text); font-size: 13px; font-weight: 500;
+    box-shadow: var(--shadow-1); align-self: center; text-align: center; max-width: 50vw;
     display: flex; align-items: center; gap: 10px;
 }
 .hud-objective .target-icon {
-    width: 12px; height: 12px; border-radius: 50%;
+    width: 11px; height: 11px; border-radius: 50%;
     background: var(--accent);
     box-shadow: 0 0 12px var(--accent);
     animation: pulse-dot 1.4s infinite;
 }
 @keyframes pulse-dot { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(0.7); } }
 
-/* ===== Bottom HUD ===== */
+/* ===== Bottom HUD (desktop) ===== */
 .hud-bottom {
-    position: absolute; bottom: 24px; left: 22px; right: 22px;
+    position: absolute; bottom: calc(20px + var(--safe-b)); left: 22px; right: 22px;
     display: flex; justify-content: space-between; align-items: flex-end; gap: 14px;
 }
 
 /* Proximity sensor */
 .proximity {
-    position: relative; width: 80px; height: 124px; pointer-events: auto;
+    position: relative; width: 76px; height: 116px; pointer-events: auto;
     flex-shrink: 0;
 }
 .prox-car {
@@ -182,14 +193,14 @@ canvas { display: block; position: absolute; top: 0; left: 0; }
 .prox-arc.danger { background: var(--danger); box-shadow: 0 0 16px rgba(239,68,68,0.7); animation: pulse-danger 0.35s infinite alternate; }
 @keyframes pulse-danger { from { opacity: 0.6; } to { opacity: 1; } }
 
-.bottom-cluster { display: flex; gap: 22px; align-items: flex-end; pointer-events: auto; }
+.bottom-cluster { display: flex; gap: 18px; align-items: flex-end; pointer-events: auto; }
 
-/* Steering wheel */
-.steer-wheel { position: relative; width: 64px; height: 64px; }
+/* Steering wheel HUD viz (desktop) */
+.steer-wheel { position: relative; width: 60px; height: 60px; }
 .steer-wheel svg { width: 100%; height: 100%; }
 
 /* Speed card */
-.speed-card { text-align: right; min-width: 140px; }
+.speed-card { text-align: right; min-width: 130px; }
 .speed-card .gear {
     margin-top: 4px; font-family: var(--font-mono); font-size: 13px; font-weight: 700;
     color: var(--accent); letter-spacing: 1px;
@@ -197,7 +208,7 @@ canvas { display: block; position: absolute; top: 0; left: 0; }
 .speed-card .gear.reverse { color: var(--warning); }
 .speed-card .gear.park { color: var(--success); }
 
-.distance-card { min-width: 130px; }
+.distance-card { min-width: 120px; }
 .distance-card .hud-value { transition: color 0.2s; }
 .distance-card.close .hud-value { color: var(--success); }
 
@@ -212,19 +223,18 @@ canvas { display: block; position: absolute; top: 0; left: 0; }
 #target-arrow.show { opacity: 0.95; }
 #target-arrow svg { width: 100%; height: 100%; filter: drop-shadow(0 0 14px rgba(34,211,238,0.85)); }
 
-/* ===== Hint banner (toast under objective) ===== */
+/* ===== Hint banner ===== */
 #hint-banner {
-    position: absolute; top: 86px; left: 50%;
+    position: absolute; top: calc(76px + var(--safe-t)); left: 50%;
     background: var(--bg-glass);
     backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
     border: 1px solid var(--border); border-radius: 10px;
-    padding: 10px 18px;
+    padding: 10px 16px;
     color: var(--text); font-size: 13px; font-weight: 500;
     box-shadow: var(--shadow-1);
     opacity: 0; transform: translate(-50%, -8px);
     transition: opacity 0.3s, transform 0.3s;
-    pointer-events: none; max-width: 80vw; text-align: center;
-    white-space: nowrap;
+    pointer-events: none; max-width: 88vw; text-align: center;
 }
 #hint-banner.show { opacity: 1; transform: translate(-50%, 0); }
 #hint-banner .accent { color: var(--accent); font-weight: 600; }
@@ -232,7 +242,7 @@ canvas { display: block; position: absolute; top: 0; left: 0; }
 
 /* ===== Park alignment meter ===== */
 #park-meter {
-    position: absolute; bottom: 200px; left: 50%; transform: translateX(-50%);
+    position: absolute; bottom: calc(180px + var(--safe-b)); left: 50%; transform: translateX(-50%);
     background: var(--bg-glass);
     backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
     border: 1px solid var(--border); border-radius: 12px;
@@ -262,17 +272,18 @@ canvas { display: block; position: absolute; top: 0; left: 0; }
     background: linear-gradient(180deg, #131a26, #0d121e);
     border: 1px solid var(--border);
     border-radius: 16px;
-    padding: 32px 36px;
-    min-width: 380px; max-width: 420px;
+    padding: 28px 30px;
+    min-width: 320px; max-width: 420px; width: 100%;
     box-shadow: var(--shadow-2);
     text-align: center;
+    max-height: 92vh; overflow-y: auto;
 }
-.modal-card h2 { font-size: 28px; font-weight: 800; margin-bottom: 16px; letter-spacing: -0.5px; }
+.modal-card h2 { font-size: 26px; font-weight: 800; margin-bottom: 14px; letter-spacing: -0.5px; }
 .modal-card h2.success { background: linear-gradient(135deg, var(--success), var(--accent)); -webkit-background-clip: text; background-clip: text; color: transparent; }
 
 .stars {
-    font-size: 52px; letter-spacing: 8px;
-    margin: 14px 0 22px; line-height: 1;
+    font-size: 50px; letter-spacing: 8px;
+    margin: 12px 0 20px; line-height: 1;
 }
 .stars .star { display: inline-block; color: rgba(255,255,255,0.12); transition: color 0.4s; }
 .stars .star.filled {
@@ -286,7 +297,7 @@ canvas { display: block; position: absolute; top: 0; left: 0; }
     100% { transform: scale(1); }
 }
 
-.stat-rows { margin: 14px 0 22px; }
+.stat-rows { margin: 12px 0 18px; }
 .stat-row { display: flex; justify-content: space-between; align-items: center; padding: 9px 4px; border-top: 1px solid var(--border); color: var(--text-muted); font-size: 14px; }
 .stat-row:first-of-type { border-top: 0; }
 .stat-row > span:last-child { color: var(--text); font-weight: 600; font-family: var(--font-mono); }
@@ -296,7 +307,55 @@ canvas { display: block; position: absolute; top: 0; left: 0; }
 .modal-actions { display: flex; gap: 10px; margin-top: 12px; }
 .modal-actions button { flex: 1; margin-top: 0; }
 
-/* ===== Toast (small ephemeral notification) ===== */
+/* ===== Name entry ===== */
+.name-entry {
+    margin: 10px 0 14px;
+}
+.name-entry label {
+    display: block; font-size: 11px; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: 1.3px; margin-bottom: 6px; text-align: left;
+}
+.name-entry input {
+    width: 100%; padding: 12px 14px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text); font-size: 16px; font-family: inherit;
+    outline: none; transition: border-color 0.2s, background 0.2s;
+}
+.name-entry input:focus { border-color: var(--accent); background: rgba(34,211,238,0.06); }
+
+/* ===== Leaderboard ===== */
+.leaderboard {
+    margin: 14px 0 16px;
+    text-align: left;
+}
+.leaderboard-title {
+    font-size: 11px; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: 1.3px; margin-bottom: 8px;
+    display: flex; justify-content: space-between; align-items: center;
+}
+.leaderboard ol { list-style: none; padding: 0; }
+.lb-row {
+    display: grid; grid-template-columns: 30px 1fr auto;
+    align-items: center; gap: 10px;
+    padding: 10px 12px; border-radius: 8px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid transparent;
+    margin-bottom: 6px;
+    font-size: 14px;
+}
+.lb-row.me { border-color: var(--accent); background: rgba(34,211,238,0.08); }
+.lb-rank { font-family: var(--font-mono); font-weight: 700; color: var(--text-muted); font-size: 13px; }
+.lb-row:nth-child(1) .lb-rank { color: #fbbf24; }
+.lb-row:nth-child(2) .lb-rank { color: #cdd5e0; }
+.lb-row:nth-child(3) .lb-rank { color: #d18b58; }
+.lb-name { color: var(--text); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lb-score { font-family: var(--font-mono); font-weight: 700; color: var(--accent); }
+.lb-empty { color: var(--text-muted); text-align: center; padding: 24px; font-size: 13px; }
+.lb-loading { color: var(--text-muted); text-align: center; padding: 18px; font-size: 13px; }
+
+/* ===== Toast ===== */
 #toast {
     position: fixed; top: 30%; left: 50%; transform: translate(-50%, 0);
     background: var(--bg-glass);
@@ -314,7 +373,7 @@ canvas { display: block; position: absolute; top: 0; left: 0; }
 
 /* ===== Pause hint ===== */
 .pause-hint {
-    position: absolute; top: 22px; left: 50%; transform: translateX(-50%);
+    position: absolute; top: calc(18px + var(--safe-t)); left: 50%; transform: translateX(-50%);
     color: var(--text-muted); font-size: 11px;
     background: var(--bg-glass);
     border: 1px solid var(--border); border-radius: 999px;
@@ -322,13 +381,173 @@ canvas { display: block; position: absolute; top: 0; left: 0; }
     z-index: 31;
 }
 
-/* ===== Mobile responsiveness ===== */
+/* ===== Top action buttons (mobile pause/reset) ===== */
+.top-actions {
+    position: absolute; top: calc(14px + var(--safe-t)); right: 14px;
+    display: none;
+    gap: 8px; z-index: 32;
+    pointer-events: auto;
+}
+body.touch-device .top-actions { display: flex; }
+.icon-btn {
+    width: 42px; height: 42px; border-radius: 12px;
+    background: var(--bg-glass);
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--border);
+    color: var(--text);
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: var(--shadow-1);
+    cursor: pointer; user-select: none;
+}
+.icon-btn:active { background: rgba(255,255,255,0.1); transform: scale(0.95); }
+.icon-btn svg { width: 18px; height: 18px; fill: currentColor; }
+
+/* ===== Mobile touch controls ===== */
+#touch-controls { display: none; position: absolute; inset: 0; pointer-events: none; z-index: 31; }
+body.touch-device.playing #touch-controls { display: block; }
+
+/* Steering wheel touch (bottom-left) */
+.touch-wheel {
+    position: absolute;
+    bottom: calc(28px + var(--safe-b)); left: 22px;
+    width: 150px; height: 150px;
+    pointer-events: auto;
+    touch-action: none;
+}
+.touch-wheel-bg {
+    position: absolute; inset: 0;
+    border-radius: 50%;
+    background: radial-gradient(circle at 50% 35%, rgba(34,211,238,0.18), rgba(15,22,33,0.85) 70%);
+    border: 2px solid rgba(34,211,238,0.35);
+    box-shadow: 0 6px 28px rgba(0,0,0,0.5), inset 0 0 30px rgba(34,211,238,0.1);
+}
+.touch-wheel-track {
+    position: absolute; inset: 14px;
+    border-radius: 50%;
+    border: 1px dashed rgba(255,255,255,0.18);
+}
+.touch-wheel-rotor {
+    position: absolute; inset: 0;
+    transition: transform 0.05s linear;
+}
+.touch-wheel-rotor svg { width: 100%; height: 100%; }
+.touch-wheel-grip {
+    position: absolute; top: 8px; left: 50%;
+    transform: translateX(-50%);
+    width: 26px; height: 26px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    box-shadow: 0 4px 14px rgba(34,211,238,0.5);
+}
+.touch-wheel-label {
+    position: absolute; bottom: 10px; left: 0; right: 0;
+    text-align: center; font-size: 9px; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: 1.3px;
+    pointer-events: none;
+}
+
+/* Pedals (bottom-right): vertical stack */
+.touch-pedals {
+    position: absolute;
+    bottom: calc(28px + var(--safe-b)); right: 22px;
+    display: flex; flex-direction: column; gap: 12px;
+    pointer-events: none;
+}
+.pedal {
+    width: 96px; height: 76px;
+    border-radius: 16px;
+    display: flex; align-items: center; justify-content: center; flex-direction: column;
+    font-weight: 800; font-size: 13px; letter-spacing: 1px;
+    pointer-events: auto;
+    user-select: none; touch-action: none;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.45), inset 0 -3px 0 rgba(0,0,0,0.25);
+    transition: transform 0.08s, box-shadow 0.08s;
+}
+.pedal-accel {
+    background: linear-gradient(180deg, #34d399 0%, #10b981 100%);
+    color: #062c1e;
+    border: 2px solid rgba(255,255,255,0.2);
+}
+.pedal-brake {
+    background: linear-gradient(180deg, #f87171 0%, #dc2626 100%);
+    color: #2c0606;
+    border: 2px solid rgba(255,255,255,0.2);
+}
+.pedal.pressed { transform: translateY(3px) scale(0.97); box-shadow: 0 2px 6px rgba(0,0,0,0.5); }
+.pedal svg { width: 22px; height: 22px; fill: currentColor; opacity: 0.85; margin-bottom: 2px; }
+
+/* Handbrake (small, between pedals and wheel area) */
+.touch-handbrake {
+    position: absolute;
+    bottom: calc(190px + var(--safe-b)); right: 22px;
+    width: 70px; height: 38px;
+    border-radius: 10px;
+    background: rgba(15,22,33,0.85);
+    border: 1px solid var(--warning);
+    color: var(--warning);
+    font-size: 11px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase;
+    display: flex; align-items: center; justify-content: center;
+    pointer-events: auto;
+    user-select: none; touch-action: none;
+    box-shadow: var(--shadow-1);
+}
+.touch-handbrake.pressed { background: rgba(251,191,36,0.18); transform: scale(0.96); }
+
+/* Camera toggle */
+.touch-cam {
+    position: absolute;
+    bottom: calc(190px + var(--safe-b)); left: 22px;
+    width: 70px; height: 38px;
+    border-radius: 10px;
+    background: rgba(15,22,33,0.85);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-size: 11px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase;
+    display: flex; align-items: center; justify-content: center;
+    pointer-events: auto;
+    user-select: none; touch-action: none;
+    box-shadow: var(--shadow-1);
+}
+.touch-cam:active { background: rgba(255,255,255,0.1); }
+
+/* ===== Mobile-specific adjustments ===== */
+body.touch-device .pause-hint { display: none; }
+body.touch-device .bottom-cluster .steer-wheel { display: none; }
+body.touch-device .hud-bottom { bottom: calc(220px + var(--safe-b)); }
+body.touch-device .distance-card,
+body.touch-device .speed-card { padding: 6px 10px; min-width: 86px; }
+body.touch-device .speed-card { text-align: right; }
+body.touch-device .hud-value { font-size: 17px; }
+body.touch-device .proximity { width: 64px; height: 96px; }
+body.touch-device .prox-car { inset: 18px 14px 18px 14px; }
+
 @media (max-width: 700px) {
     .controls-card { min-width: 280px; }
-    .hud-card { min-width: 70px; padding: 8px 12px; }
-    .hud-value { font-size: 18px; }
-    .hud-objective { padding: 8px 14px; font-size: 12px; }
-    .modal-card { min-width: 320px; padding: 24px 22px; }
+    .hud-card { min-width: 70px; padding: 7px 12px; }
+    .hud-value { font-size: 17px; }
+    .hud-objective { padding: 8px 14px; font-size: 12px; max-width: 60vw; }
+    .modal-card { min-width: 290px; padding: 22px 20px; }
+    .stars { font-size: 42px; letter-spacing: 6px; }
+    .modal-card h2 { font-size: 22px; }
+}
+
+@media (max-width: 380px) {
+    .touch-wheel { width: 130px; height: 130px; }
+    .pedal { width: 84px; height: 68px; }
+    .touch-handbrake, .touch-cam { width: 64px; height: 34px; font-size: 10px; }
+    body.touch-device .hud-bottom { bottom: calc(200px + var(--safe-b)); }
+}
+
+/* Landscape orientation tweaks */
+@media (orientation: landscape) and (max-height: 500px) {
+    .touch-wheel { width: 120px; height: 120px; bottom: 14px; left: 14px; }
+    .pedal { width: 80px; height: 60px; }
+    .touch-pedals { bottom: 14px; right: 14px; gap: 8px; }
+    .touch-handbrake, .touch-cam { bottom: 152px; }
+    .hud-top { top: 10px; }
+    body.touch-device .hud-bottom { bottom: 156px; }
+    .modal-card { padding: 18px 22px; max-height: 88vh; }
+    .stars { font-size: 32px; margin: 6px 0 12px; letter-spacing: 4px; }
 }
 </style>
 </head>
@@ -340,8 +559,8 @@ canvas { display: block; position: absolute; top: 0; left: 0; }
     <p class="tagline">
         Precision parking. <strong>Find the spot.</strong> Mind the bumpers. <strong>Nail the line.</strong>
     </p>
-    <div class="controls-card">
-        <h3>Controls</h3>
+    <div class="controls-card kbd">
+        <h3>Keyboard Controls</h3>
         <div class="controls-grid">
             <div class="key">W&nbsp;&nbsp;↑</div><div class="action">Drive forward</div>
             <div class="key">S&nbsp;&nbsp;↓</div><div class="action">Reverse / brake</div>
@@ -352,7 +571,20 @@ canvas { display: block; position: absolute; top: 0; left: 0; }
             <div class="key">P / Esc</div><div class="action">Pause</div>
         </div>
     </div>
-    <button class="primary-btn" id="start-btn">Start Game</button>
+    <div class="controls-card touch">
+        <h3>Touch Controls</h3>
+        <div class="controls-grid">
+            <div class="key">Wheel</div><div class="action">Drag to steer</div>
+            <div class="key">Green</div><div class="action">Accelerate</div>
+            <div class="key">Red</div><div class="action">Reverse / brake</div>
+            <div class="key">HOLD</div><div class="action">Handbrake</div>
+            <div class="key">CAM</div><div class="action">Toggle camera</div>
+        </div>
+    </div>
+    <div class="title-actions">
+        <button class="primary-btn" id="start-btn">Start Game</button>
+        <button class="secondary-btn" id="leaderboard-btn">Leaderboard</button>
+    </div>
 </div>
 
 <!-- ================= IN-GAME HUD ================= -->
@@ -361,7 +593,7 @@ canvas { display: block; position: absolute; top: 0; left: 0; }
         <div class="hud-card">
             <div class="hud-label">Level</div>
             <div class="hud-value mono">
-                <span id="level-num">1</span><span class="sep"> / </span><span class="sep" id="level-total">5</span>
+                <span id="level-num">1</span><span class="sep"> / </span><span class="sep" id="level-total">10</span>
             </div>
         </div>
         <div class="hud-objective">
@@ -372,6 +604,15 @@ canvas { display: block; position: absolute; top: 0; left: 0; }
             <div class="hud-label">Time</div>
             <div class="hud-value mono" id="time-val">00:00</div>
         </div>
+    </div>
+
+    <div class="top-actions">
+        <button class="icon-btn" id="reset-btn" title="Reset car">
+            <svg viewBox="0 0 24 24"><path d="M17.65 6.35A8 8 0 1 0 19.73 13h-2.08a6 6 0 1 1-1.41-6.24L13 10h7V3l-2.35 3.35z"/></svg>
+        </button>
+        <button class="icon-btn" id="pause-btn" title="Pause">
+            <svg viewBox="0 0 24 24"><path d="M6 4h4v16H6zM14 4h4v16h-4z"/></svg>
+        </button>
     </div>
 
     <div id="hint-banner"></div>
@@ -425,6 +666,30 @@ canvas { display: block; position: absolute; top: 0; left: 0; }
     </div>
 
     <div class="pause-hint">P or Esc to pause • R to reset car</div>
+
+    <!-- Mobile touch controls -->
+    <div id="touch-controls">
+        <div class="touch-cam" id="touch-cam">CAM</div>
+        <div class="touch-handbrake" id="touch-handbrake">HOLD</div>
+        <div class="touch-wheel" id="touch-wheel">
+            <div class="touch-wheel-bg"></div>
+            <div class="touch-wheel-track"></div>
+            <div class="touch-wheel-rotor" id="touch-wheel-rotor">
+                <div class="touch-wheel-grip"></div>
+            </div>
+            <div class="touch-wheel-label">Steer</div>
+        </div>
+        <div class="touch-pedals">
+            <div class="pedal pedal-accel" id="pedal-accel">
+                <svg viewBox="0 0 24 24"><path d="M12 4l-8 14h16z"/></svg>
+                GO
+            </div>
+            <div class="pedal pedal-brake" id="pedal-brake">
+                <svg viewBox="0 0 24 24"><path d="M12 20l8-14H4z"/></svg>
+                BRAKE
+            </div>
+        </div>
+    </div>
 </div>
 
 <!-- ================= TOAST ================= -->
@@ -432,7 +697,7 @@ canvas { display: block; position: absolute; top: 0; left: 0; }
 
 <!-- ================= PAUSE ================= -->
 <div id="pause-screen" class="screen modal hidden">
-    <div class="modal-card" style="min-width:340px;">
+    <div class="modal-card" style="min-width:320px;">
         <h2>Paused</h2>
         <button class="primary-btn" id="resume-btn">Resume</button>
         <button class="secondary-btn" id="restart-btn">Restart Level</button>
@@ -459,17 +724,33 @@ canvas { display: block; position: absolute; top: 0; left: 0; }
     </div>
 </div>
 
-<!-- ================= GAME COMPLETE ================= -->
+<!-- ================= GAME COMPLETE (with leaderboard) ================= -->
 <div id="game-complete-screen" class="screen modal hidden">
     <div class="modal-card">
-        <h2 class="success">All Levels Complete!</h2>
+        <h2 class="success">All 10 Levels Complete!</h2>
         <div class="stars" id="total-stars-display"></div>
         <div class="stat-rows">
             <div class="stat-row"><span>Total time</span><span class="mono" id="total-time">00:00</span></div>
             <div class="stat-row"><span>Total bumps</span><span class="mono" id="total-bumps">0</span></div>
-            <div class="stat-row"><span>Stars earned</span><span class="mono" id="total-stars">0 / 15</span></div>
+            <div class="stat-row"><span>Stars earned</span><span class="mono" id="total-stars">0 / 30</span></div>
+            <div class="stat-row"><span>Final score</span><span class="mono" id="total-score">0</span></div>
         </div>
-        <button class="primary-btn" id="play-again-btn">Play Again</button>
+        <div class="name-entry" id="name-entry-section">
+            <label for="player-name">Enter your name for the leaderboard</label>
+            <input type="text" id="player-name" maxlength="20" placeholder="Your name" autocomplete="off"/>
+        </div>
+        <button class="primary-btn" id="submit-score-btn">Submit Score</button>
+        <div class="leaderboard" id="game-complete-leaderboard"></div>
+        <button class="secondary-btn" id="play-again-btn">Play Again</button>
+    </div>
+</div>
+
+<!-- ================= LEADERBOARD MODAL (from title) ================= -->
+<div id="leaderboard-screen" class="screen modal hidden">
+    <div class="modal-card">
+        <h2>Top Parkers</h2>
+        <div class="leaderboard" id="standalone-leaderboard"></div>
+        <button class="primary-btn" id="leaderboard-close-btn">Close</button>
     </div>
 </div>
 
