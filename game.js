@@ -738,7 +738,8 @@ const LEVELS = [
         cars: [
             { x: -10.4, z: -3, heading: PI }, { x: -7.8, z: -3, heading: PI },
             { x: -5.2, z: -3, heading: PI }, { x: -2.6, z: -3, heading: PI },
-            { x: 0, z: -3, heading: PI }, { x: 1.5, z: -3, heading: PI },
+            { x: 0, z: -3, heading: PI },
+            // narrow painted bay at x=1.5 stays empty (too small for a car)
             { x: 6.55, z: -3, heading: PI }, { x: 9.15, z: -3, heading: PI },
         ],
         spots: [
@@ -1178,10 +1179,15 @@ const els = {
     totalStars: $('total-stars'),
     totalScore: $('total-score'),
     playerName: $('player-name'),
+    titlePlayerName: $('title-player-name'),
     submitScoreBtn: $('submit-score-btn'),
     nameEntrySection: $('name-entry-section'),
+    submittedAs: $('submitted-as'),
+    submittedAsText: $('submitted-as-text'),
+    editNameBtn: $('edit-name-btn'),
     completeLeaderboard: $('game-complete-leaderboard'),
     standaloneLeaderboard: $('standalone-leaderboard'),
+    rotatePrompt: $('rotate-prompt'),
     touchWheel: $('touch-wheel'),
     touchWheelRotor: $('touch-wheel-rotor'),
     pedalAccel: $('pedal-accel'),
@@ -1410,7 +1416,7 @@ function computeFinalScore() {
     return Math.max(0, totalStars * 100 + timeBonus - bumpPenalty);
 }
 
-function showGameComplete() {
+async function showGameComplete() {
     state.mode = 'gameComplete';
     document.body.classList.remove('playing');
     els.hud.classList.add('hidden');
@@ -1428,16 +1434,34 @@ function showGameComplete() {
     els.totalScore.textContent = score.toString();
     state.pendingScore = score;
     state.submittedScore = -1;
-    els.nameEntrySection.style.display = '';
-    els.submitScoreBtn.style.display = '';
-    els.submitScoreBtn.disabled = false;
-    els.submitScoreBtn.textContent = 'Submit Score';
-    const savedName = localStorage.getItem('parkit_name') || '';
-    els.playerName.value = savedName;
     els.completeLeaderboard.innerHTML = '<div class="lb-loading">Loading leaderboard…</div>';
     els.gameComplete.classList.remove('hidden');
     playChime();
-    refreshLeaderboard(els.completeLeaderboard, savedName);
+
+    // Auto-submit using saved name
+    const savedName = (localStorage.getItem('parkit_name') || '').trim() || 'Anonymous';
+    els.playerName.value = savedName;
+    els.nameEntrySection.style.display = 'none';
+    els.submitScoreBtn.style.display = 'none';
+    showSubmittedAs(savedName, 'Submitting');
+    const ok = await submitScore(savedName, score);
+    if (ok) {
+        state.submittedScore = score;
+        showSubmittedAs(savedName, 'Submitted as');
+        await refreshLeaderboard(els.completeLeaderboard, savedName);
+    } else {
+        showSubmittedAs(savedName, 'Submit failed —');
+        els.submitScoreBtn.style.display = '';
+        els.submitScoreBtn.textContent = 'Retry submit';
+        els.submitScoreBtn.disabled = false;
+        await refreshLeaderboard(els.completeLeaderboard, savedName);
+    }
+}
+
+function showSubmittedAs(name, prefix) {
+    const safe = name.replace(/[<>&"']/g, c => ({ '<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;' }[c]));
+    els.submittedAsText.innerHTML = `${prefix} <strong>${safe}</strong>`;
+    els.submittedAs.style.display = '';
 }
 
 async function refreshLeaderboard(container, highlightName = '') {
@@ -1472,15 +1496,19 @@ async function handleSubmitScore() {
     els.submitScoreBtn.disabled = true;
     els.submitScoreBtn.textContent = 'Submitting…';
     localStorage.setItem('parkit_name', name);
+    showSubmittedAs(name, 'Submitting');
     const ok = await submitScore(name, score);
     if (ok) {
         state.submittedScore = score;
-        els.submitScoreBtn.textContent = 'Submitted ✓';
+        els.submitScoreBtn.style.display = 'none';
+        els.nameEntrySection.style.display = 'none';
+        showSubmittedAs(name, 'Submitted as');
         showToast('Score submitted!', 'success', 1400);
         await refreshLeaderboard(els.completeLeaderboard, name);
     } else {
         els.submitScoreBtn.textContent = 'Retry submit';
         els.submitScoreBtn.disabled = false;
+        showSubmittedAs(name, 'Submit failed —');
         showToast('Submit failed — try again', 'warn', 1800);
     }
 }
@@ -1650,13 +1678,73 @@ els.touchCam.addEventListener('click', () => {
 // ============================================================================
 // Wire up UI buttons
 // ============================================================================
+// Pre-fill title name field from localStorage
+els.titlePlayerName.value = (localStorage.getItem('parkit_name') || '').trim();
+
 $('start-btn').addEventListener('click', () => {
     ensureAudio();
+    // Save name from title screen (if blank, fall back to existing or Anonymous later)
+    const titleName = els.titlePlayerName.value.trim().slice(0, 20);
+    if (titleName) localStorage.setItem('parkit_name', titleName);
+    // Try to lock to landscape on supported devices
+    tryLockLandscape();
     startGame();
 });
+
+els.editNameBtn.addEventListener('click', () => {
+    const isOpen = els.nameEntrySection.style.display !== 'none';
+    if (isOpen) {
+        els.nameEntrySection.style.display = 'none';
+        els.submitScoreBtn.style.display = 'none';
+    } else {
+        els.nameEntrySection.style.display = '';
+        els.playerName.value = (localStorage.getItem('parkit_name') || '').trim();
+        els.submitScoreBtn.style.display = '';
+        els.submitScoreBtn.textContent = 'Submit Score';
+        els.submitScoreBtn.disabled = false;
+        els.playerName.focus();
+    }
+});
+
+// ============================================================================
+// Orientation handling
+// ============================================================================
+async function tryLockLandscape() {
+    if (!isTouchDevice) return;
+    try {
+        if (screen.orientation && screen.orientation.lock) {
+            // Most browsers require fullscreen first
+            if (document.documentElement.requestFullscreen) {
+                try { await document.documentElement.requestFullscreen(); } catch (e) {}
+            }
+            await screen.orientation.lock('landscape');
+        }
+    } catch (e) { /* lock not supported / denied — rotation prompt handles it */ }
+}
+
+function isPortrait() {
+    return window.matchMedia('(orientation: portrait)').matches;
+}
+
+function checkOrientation() {
+    if (!isTouchDevice) return;
+    if (isPortrait() && state.mode === 'playing') {
+        // auto-pause
+        pauseGame();
+    }
+}
+window.addEventListener('orientationchange', checkOrientation);
+window.addEventListener('resize', checkOrientation);
+
 $('leaderboard-btn').addEventListener('click', showLeaderboardModal);
 $('leaderboard-close-btn').addEventListener('click', () => {
     els.leaderboardScreen.classList.add('hidden');
+});
+$('controls-btn').addEventListener('click', () => {
+    document.getElementById('controls-screen').classList.remove('hidden');
+});
+$('controls-close-btn').addEventListener('click', () => {
+    document.getElementById('controls-screen').classList.add('hidden');
 });
 $('resume-btn').addEventListener('click', resumeGame);
 $('restart-btn').addEventListener('click', restartLevel);

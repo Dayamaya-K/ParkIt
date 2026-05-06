@@ -355,6 +355,48 @@ body:not(.touch-device) .controls-card.touch { display: none; }
 .lb-empty { color: var(--text-muted); text-align: center; padding: 24px; font-size: 13px; }
 .lb-loading { color: var(--text-muted); text-align: center; padding: 18px; font-size: 13px; }
 
+/* ===== Title name entry ===== */
+.title-name-entry { width: 100%; max-width: 360px; margin: 0 0 18px; }
+
+/* ===== Submitted-as banner ===== */
+.submitted-as {
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+    padding: 10px 14px; margin: 4px 0 10px;
+    background: rgba(34,211,238,0.08);
+    border: 1px solid rgba(34,211,238,0.2);
+    border-radius: 8px;
+    font-size: 13px; color: var(--text-muted);
+}
+.submitted-as strong { color: var(--accent); font-weight: 700; }
+.link-btn {
+    background: none; border: none; cursor: pointer;
+    color: var(--accent); font-size: 12px; font-family: inherit;
+    text-decoration: underline; padding: 2px 6px;
+}
+.link-btn:hover { color: var(--text); }
+
+/* ===== Rotate device prompt ===== */
+#rotate-prompt {
+    display: none;
+    position: fixed; inset: 0; z-index: 90;
+    background: linear-gradient(135deg, #07101e, #131a26 60%, #0a0f1a);
+    align-items: center; justify-content: center;
+    flex-direction: column;
+    color: var(--text); text-align: center; padding: 32px;
+}
+#rotate-prompt h2 { font-size: 22px; margin: 16px 0 8px; font-weight: 700; }
+#rotate-prompt p { color: var(--text-muted); font-size: 14px; max-width: 280px; }
+.rotate-icon { color: var(--text); animation: rot-wiggle 1.6s ease-in-out infinite; }
+@keyframes rot-wiggle {
+    0%,100% { transform: rotate(0deg); }
+    25% { transform: rotate(-90deg); }
+    60% { transform: rotate(-90deg); }
+    80% { transform: rotate(0deg); }
+}
+@media (orientation: portrait) and (max-height: 900px) {
+    body.touch-device.playing #rotate-prompt { display: flex; }
+}
+
 /* ===== Toast ===== */
 #toast {
     position: fixed; top: 30%; left: 50%; transform: translate(-50%, 0);
@@ -559,32 +601,59 @@ body.touch-device .prox-car { inset: 18px 14px 18px 14px; }
     <p class="tagline">
         Precision parking. <strong>Find the spot.</strong> Mind the bumpers. <strong>Nail the line.</strong>
     </p>
-    <div class="controls-card kbd">
-        <h3>Keyboard Controls</h3>
-        <div class="controls-grid">
-            <div class="key">W&nbsp;&nbsp;↑</div><div class="action">Drive forward</div>
-            <div class="key">S&nbsp;&nbsp;↓</div><div class="action">Reverse / brake</div>
-            <div class="key">A D &nbsp;←→</div><div class="action">Steer</div>
-            <div class="key">Space</div><div class="action">Handbrake</div>
-            <div class="key">C</div><div class="action">Cycle camera</div>
-            <div class="key">R</div><div class="action">Reset car</div>
-            <div class="key">P / Esc</div><div class="action">Pause</div>
-        </div>
-    </div>
-    <div class="controls-card touch">
-        <h3>Touch Controls</h3>
-        <div class="controls-grid">
-            <div class="key">Wheel</div><div class="action">Drag to steer</div>
-            <div class="key">Green</div><div class="action">Accelerate</div>
-            <div class="key">Red</div><div class="action">Reverse / brake</div>
-            <div class="key">HOLD</div><div class="action">Handbrake</div>
-            <div class="key">CAM</div><div class="action">Toggle camera</div>
-        </div>
+    <div class="name-entry title-name-entry">
+        <label for="title-player-name">Your name (for the leaderboard)</label>
+        <input type="text" id="title-player-name" maxlength="20" placeholder="Driver name" autocomplete="off"/>
     </div>
     <div class="title-actions">
         <button class="primary-btn" id="start-btn">Start Game</button>
+        <button class="secondary-btn" id="controls-btn">Controls</button>
         <button class="secondary-btn" id="leaderboard-btn">Leaderboard</button>
     </div>
+</div>
+
+<!-- ================= CONTROLS MODAL ================= -->
+<div id="controls-screen" class="screen modal hidden">
+    <div class="modal-card">
+        <h2>Controls</h2>
+        <div class="controls-card kbd" style="margin: 0 0 14px; min-width: 0;">
+            <h3>Keyboard</h3>
+            <div class="controls-grid">
+                <div class="key">W&nbsp;&nbsp;↑</div><div class="action">Drive forward</div>
+                <div class="key">S&nbsp;&nbsp;↓</div><div class="action">Reverse / brake</div>
+                <div class="key">A D &nbsp;←→</div><div class="action">Steer</div>
+                <div class="key">Space</div><div class="action">Handbrake</div>
+                <div class="key">C</div><div class="action">Cycle camera</div>
+                <div class="key">R</div><div class="action">Reset car</div>
+                <div class="key">P / Esc</div><div class="action">Pause</div>
+            </div>
+        </div>
+        <div class="controls-card touch" style="margin: 0 0 14px; min-width: 0;">
+            <h3>Touch</h3>
+            <div class="controls-grid">
+                <div class="key">Wheel</div><div class="action">Drag to steer</div>
+                <div class="key">GO</div><div class="action">Accelerate</div>
+                <div class="key">BRAKE</div><div class="action">Reverse / brake</div>
+                <div class="key">HOLD</div><div class="action">Handbrake</div>
+                <div class="key">CAM</div><div class="action">Toggle camera</div>
+            </div>
+        </div>
+        <button class="primary-btn" id="controls-close-btn">Got it</button>
+    </div>
+</div>
+
+<!-- ================= ROTATE DEVICE PROMPT ================= -->
+<div id="rotate-prompt">
+    <div class="rotate-icon">
+        <svg viewBox="0 0 64 64" width="80" height="80" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="8" y="18" width="48" height="28" rx="4"/>
+            <circle cx="14" cy="32" r="1.5" fill="currentColor"/>
+            <path d="M44 8 a14 14 0 0 1 12 12" stroke="#22d3ee"/>
+            <path d="M52 8 L56 8 L56 12" stroke="#22d3ee"/>
+        </svg>
+    </div>
+    <h2>Rotate your device</h2>
+    <p>Park It! plays best in landscape orientation.</p>
 </div>
 
 <!-- ================= IN-GAME HUD ================= -->
@@ -735,11 +804,15 @@ body.touch-device .prox-car { inset: 18px 14px 18px 14px; }
             <div class="stat-row"><span>Stars earned</span><span class="mono" id="total-stars">0 / 30</span></div>
             <div class="stat-row"><span>Final score</span><span class="mono" id="total-score">0</span></div>
         </div>
-        <div class="name-entry" id="name-entry-section">
-            <label for="player-name">Enter your name for the leaderboard</label>
+        <div class="name-entry" id="name-entry-section" style="display:none;">
+            <label for="player-name">Edit name</label>
             <input type="text" id="player-name" maxlength="20" placeholder="Your name" autocomplete="off"/>
         </div>
-        <button class="primary-btn" id="submit-score-btn">Submit Score</button>
+        <div class="submitted-as" id="submitted-as">
+            <span id="submitted-as-text">Submitting as <strong></strong>…</span>
+            <button class="link-btn" id="edit-name-btn">edit</button>
+        </div>
+        <button class="primary-btn" id="submit-score-btn" style="display:none;">Submit Score</button>
         <div class="leaderboard" id="game-complete-leaderboard"></div>
         <button class="secondary-btn" id="play-again-btn">Play Again</button>
     </div>
