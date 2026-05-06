@@ -20,23 +20,6 @@ A browser-based 3D parking game built with Three.js. Navigate dense parking lots
 - [Supabase](https://supabase.com/) REST API for leaderboard
 - Web Audio API (synthesized engine + beeps)
 
-## Quick Start
-
-The game is fully static — any HTTP server works.
-
-```bash
-# Python
-python3 -m http.server 8765
-
-# Node
-npx serve -p 8765
-
-# Ruby
-ruby -rwebrick -e "WEBrick::HTTPServer.new(Port: 8765, DocumentRoot: '.').start"
-```
-
-Then open <http://127.0.0.1:8765>.
-
 ## Controls
 
 ### Desktop (keyboard)
